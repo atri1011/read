@@ -153,6 +153,25 @@ def set_document_review(
     conn.commit()
 
 
+def set_document_draft(
+    conn: psycopg.Connection,
+    document_id: str | UUID,
+    draft_markdown: str,
+) -> None:
+    """Persist draft markdown without changing document status."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE documents
+            SET draft_markdown = %s,
+                updated_at = %s
+            WHERE id = %s
+            """,
+            (draft_markdown, _now(), document_id),
+        )
+    conn.commit()
+
+
 def set_document_failed(
     conn: psycopg.Connection,
     document_id: str | UUID,
