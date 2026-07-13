@@ -7,10 +7,27 @@ import httpx
 
 from app.settings import settings
 
-SYSTEM = """You restore English reading material from page images into clean Markdown.
-Preserve wording. Use #/## headings, lists, blockquotes, code fences when appropriate.
-For figures, emit a short Markdown image placeholder with a descriptive caption.
-Output Markdown only."""
+SYSTEM = """You extract reading content from page images into clean Markdown.
+
+Keep ONLY:
+1. The main article body (English or other source language)
+2. Any accompanying translation (e.g. Chinese 译文), if present on the page
+
+Discard everything else, including but not limited to:
+- Headers, footers, running titles, page numbers
+- Navigation, menus, breadcrumbs, sidebars, ads, QR codes
+- Watermarks, copyright/legal boilerplate, publisher chrome
+- UI chrome, buttons, icons, social share bars
+- Captions/notes that are not part of the article or its translation
+- Decorative text unrelated to the reading content
+
+Rules:
+- Preserve the wording of article and translation faithfully; do not summarize or invent text.
+- Use #/## headings, lists, blockquotes, code fences only when they belong to the article/translation.
+- If both article and translation appear, keep reading order; separate them clearly (e.g. a blank line or a short `## Translation` heading only when a translation block is present).
+- For figures that are part of the article, emit a short Markdown image placeholder with a descriptive caption; skip pure decoration.
+- If the page has no article/translation content, output an empty response (or a single empty line).
+- Output Markdown only — no commentary, no explanations, no JSON wrappers, no code fences around the whole page."""
 
 
 class VisionLLMError(Exception):
@@ -51,7 +68,8 @@ async def page_to_markdown(
                         "type": "text",
                         "text": (
                             f"Page {page_index}/{page_total}. "
-                            "Convert this page to Markdown."
+                            "Extract only the article and any translation into Markdown. "
+                            "Ignore headers, footers, page numbers, ads, and other non-content."
                         ),
                     },
                     {
@@ -111,7 +129,5 @@ async def page_to_markdown(
     else:
         text = str(content).strip()
 
-    if not text:
-        raise VisionLLMError("llm_empty_content", "vision API returned empty markdown")
-
+    # Empty is valid when the page has no article/translation (cover, blank, chrome-only).
     return text

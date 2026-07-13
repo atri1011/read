@@ -180,7 +180,7 @@ No OCR path.
 1. Download/open stored PDF from shared volume  
 2. Render pages to PNG/WebP (e.g. PyMuPDF) at reading DPI (e.g. 150–200)  
 3. For each page (or small batches), call OpenAI-compatible Chat Completions with image parts  
-4. Prompt: restore reading order, headings, lists, blockquotes, code; describe images as `![caption](…)` placeholders; preserve English text faithfully  
+4. Prompt: extract **only article body + translation (译文)**; drop headers/footers/page numbers/ads/UI chrome; restore reading order, headings, lists, blockquotes, code when part of content; describe article figures as `![caption](…)` placeholders; preserve wording faithfully  
 5. Stitch pages with clear separators; light cleanup  
 6. Write `draft_markdown` on document; status `review`  
 7. On API/render errors: set job `failed` with structured error; allow retry  

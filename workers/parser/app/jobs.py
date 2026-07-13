@@ -86,7 +86,16 @@ async def _pdf_pages_to_markdown(
                 except Exception:  # noqa: BLE001 — best-effort partial save
                     pass
             raise JobError(exc.code, exc.message, progress=progress) from exc
-        parts.append(md.strip())
+        cleaned = md.strip()
+        if cleaned:
+            parts.append(cleaned)
+
+    if not parts:
+        raise JobError(
+            "pdf_no_content",
+            "no article or translation content extracted from any page",
+            progress={"stage": "vision", "page": total, "total": total},
+        )
 
     return "\n\n---\n\n".join(parts) + "\n"
 
