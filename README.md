@@ -1,6 +1,6 @@
 # English Reader MVP
 
-Self-hosted English reading app with EPUB/PDF upload, vocabulary tracking, and LLM-assisted learning.
+Self-hosted English reading app: TXT/MD/PDF upload, vision-LLM layout restore, annotations, and bilingual lookup.
 
 ## Quick start
 
@@ -24,4 +24,4 @@ App: [http://localhost:3000](http://localhost:3000)
 
 ## Host reverse proxy
 
-This compose stack binds ports for local development only. On a real host, put a reverse proxy (Caddy, Nginx, or Traefik) in front of `web:3000`, terminate TLS there, and keep Postgres/Redis internal. See [DESIGN.md](./DESIGN.md) for deployment and reverse-proxy notes.
+This compose stack binds ports for local development only. On a real host, put a reverse proxy (Caddy, Nginx, or Traefik) in front of `web:3000`, terminate TLS there, and **do not publish Postgres/Redis to the public internet**. Change `POSTGRES_PASSWORD` (and matching `DATABASE_URL`) before any shared/public host. See [DESIGN.md](./DESIGN.md) for deployment notes.
