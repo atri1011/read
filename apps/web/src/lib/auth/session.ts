@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "crypto";
 import { cookies } from "next/headers";
 import { and, eq, gt } from "drizzle-orm";
+import { SESSION_COOKIE, SESSION_DAYS } from "@/lib/auth/constants";
 import { db } from "@/lib/db";
 import { sessions } from "@/lib/db/schema";
 
-export const SESSION_COOKIE = "reader_session";
-const SESSION_DAYS = 30;
+export { SESSION_COOKIE } from "@/lib/auth/constants";
+
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
