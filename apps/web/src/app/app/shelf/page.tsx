@@ -5,5 +5,9 @@ export const metadata = {
 };
 
 export default function ShelfPage() {
-  return <ShelfTabs />;
+  return (
+    <div className="mx-auto w-full max-w-5xl px-4 py-8">
+      <ShelfTabs />
+    </div>
+  );
 }

@@ -5,6 +5,7 @@ import {
   DocumentList,
   type ShelfDocument,
 } from "@/components/shelf/document-list";
+import { UploadButton } from "@/components/shelf/upload-button";
 
 type Scope = "mine" | "public";
 
@@ -54,29 +55,32 @@ export function ShelfTabs() {
             管理你的文章，或浏览实例内的公开阅读材料。
           </p>
         </div>
-        <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
-          {(
-            [
-              { id: "mine", label: "我的" },
-              { id: "public", label: "公开" },
-            ] as const
-          ).map((tab) => {
-            const active = scope === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setScope(tab.id)}
-                className={
-                  active
-                    ? "rounded-lg bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "rounded-lg px-4 py-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                }
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+        <div className="flex flex-col items-stretch gap-3 sm:items-end">
+          {scope === "mine" && <UploadButton />}
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
+            {(
+              [
+                { id: "mine", label: "我的" },
+                { id: "public", label: "公开" },
+              ] as const
+            ).map((tab) => {
+              const active = scope === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setScope(tab.id)}
+                  className={
+                    active
+                      ? "rounded-lg bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "rounded-lg px-4 py-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  }
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -97,7 +101,7 @@ export function ShelfTabs() {
         <DocumentList
           documents={documents}
           emptyTitle="还没有文章"
-          emptyDescription="上传 TXT / MD / PDF 后，会显示在「我的」书架。（上传功能下一阶段接入）"
+          emptyDescription="点击「上传文章」选择 TXT / MD / PDF，处理完成后可在此审阅与发布。"
           showStatus
         />
       ) : (

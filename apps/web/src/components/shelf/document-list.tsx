@@ -38,6 +38,11 @@ function formatDate(value: string | Date | null | undefined): string {
   });
 }
 
+function docHref(doc: ShelfDocument): string {
+  if (doc.status === "published") return `/app/docs/${doc.id}/read`;
+  return `/app/docs/${doc.id}/review`;
+}
+
 export function DocumentList({
   documents,
   emptyTitle,
@@ -58,32 +63,34 @@ export function DocumentList({
   return (
     <ul className="divide-y divide-zinc-200 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
       {documents.map((doc) => (
-        <li
-          key={doc.id}
-          className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="min-w-0 space-y-1">
-            <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
-              {doc.title}
-            </p>
-            <p className="text-xs text-zinc-500">
-              {doc.sourceFilename ? `${doc.sourceFilename} · ` : ""}
-              更新于 {formatDate(doc.updatedAt)}
-              {doc.publishedAt
-                ? ` · 发布于 ${formatDate(doc.publishedAt)}`
-                : ""}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs">
-            {showStatus && (
-              <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                {STATUS_LABEL[doc.status] ?? doc.status}
+        <li key={doc.id}>
+          <a
+            href={docHref(doc)}
+            className="flex flex-col gap-2 px-4 py-4 transition-colors hover:bg-zinc-50 sm:flex-row sm:items-center sm:justify-between dark:hover:bg-zinc-900/60"
+          >
+            <div className="min-w-0 space-y-1">
+              <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                {doc.title}
+              </p>
+              <p className="text-xs text-zinc-500">
+                {doc.sourceFilename ? `${doc.sourceFilename} · ` : ""}
+                更新于 {formatDate(doc.updatedAt)}
+                {doc.publishedAt
+                  ? ` · 发布于 ${formatDate(doc.publishedAt)}`
+                  : ""}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs">
+              {showStatus && (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                  {STATUS_LABEL[doc.status] ?? doc.status}
+                </span>
+              )}
+              <span className="rounded-full border border-zinc-200 px-2.5 py-1 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+                {doc.shelfVisibility === "public" ? "公开" : "私有"}
               </span>
-            )}
-            <span className="rounded-full border border-zinc-200 px-2.5 py-1 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-              {doc.shelfVisibility === "public" ? "公开" : "私有"}
-            </span>
-          </div>
+            </div>
+          </a>
         </li>
       ))}
     </ul>
