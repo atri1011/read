@@ -19,11 +19,15 @@ class JobError(Exception):
 def _source_path(relative: str | None) -> Path:
     if not relative:
         raise JobError("missing_source", "document has no source_path")
-    root = Path(settings.upload_dir)
+    root = Path(settings.upload_dir).resolve()
     full = (root / relative).resolve()
-    # prevent path traversal outside upload root
-    if not str(full).startswith(str(root.resolve())):
-        raise JobError("invalid_source_path", "source_path escapes upload root")
+    try:
+        full.relative_to(root)
+    except ValueError as exc:
+        raise JobError(
+            "invalid_source_path",
+            "source_path escapes upload root",
+        ) from exc
     return full
 
 

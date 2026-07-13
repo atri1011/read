@@ -3,10 +3,9 @@ import path from "path";
 import { randomBytes } from "crypto";
 
 export function uploadRoot(): string {
-  return (
-    process.env.UPLOAD_DIR ||
-    path.join(process.cwd(), "../../data/uploads")
-  );
+  if (process.env.UPLOAD_DIR) return process.env.UPLOAD_DIR;
+  // Dev fallback: repo-root data/uploads (cwd is apps/web during next dev)
+  return path.resolve(/* turbopackIgnore: true */ process.cwd(), "..", "..", "data", "uploads");
 }
 
 export async function saveUpload(
