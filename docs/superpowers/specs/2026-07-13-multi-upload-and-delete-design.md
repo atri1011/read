@@ -40,7 +40,7 @@ Rationale: reuses enqueue/parse logic, partial failures stay per-file, small cha
 
 | Rule | Detail |
 |------|--------|
-| Entry points | `UploadDropzone` (shelf) and any `UploadButton` still used for upload |
+| Entry points | Primary: `UploadDropzone` on shelf. `UploadButton` is currently unused in pages; update it for consistency or leave if removed later |
 | Selection | `<input multiple>` + drag-and-drop of multiple files |
 | Types | Unchanged: `.txt`, `.md`, `.pdf` (client accept + server validation) |
 | Size | Unchanged: ≤ 50MB per file |
@@ -90,13 +90,14 @@ Single-file upload semantics remain the contract. Multi-upload does not change t
 
 ## UI components
 
-### `UploadDropzone` / `UploadButton`
+### `UploadDropzone` (required) / `UploadButton` (optional consistency)
 
 - Add `multiple` to the file input.
-- Collect `FileList` → array; filter empty; upload each with shared helper if useful.
+- Collect `FileList` → array; filter empty; upload each with a small shared client helper if useful.
 - State: `pending`, `progress { done, total }`, `error` / `failures[]`, clear on new pick.
 - Drop handler uses all dropped files, not `[0]`.
 - Copy: mention multi-file is supported (e.g. “可多选”).
+- Extract shared `uploadDocumentFile(file)` if both components are updated, to avoid duplicated fetch logic.
 
 ### `DocumentList`
 
