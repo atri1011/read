@@ -10,6 +10,7 @@ import {
   getLatestRevision,
   isOwner,
 } from "@/lib/documents/access";
+import { deleteUpload } from "@/lib/storage";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -172,4 +173,39 @@ export async function PATCH(request: Request, context: RouteContext) {
     });
 
   return NextResponse.json({ document: updated });
+}
+
+export async function DELETE(_request: Request, context: RouteContext) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
+  const { id } = await context.params;
+  const doc = await getDocumentById(id);
+  if (!doc) {
+    return NextResponse.json({ error: "文档不存在" }, { status: 404 });
+  }
+  if (!isOwner(doc, user)) {
+    return NextResponse.json({ error: "无权删除" }, { status: 403 });
+  }
+
+  const sourcePath = doc.sourcePath;
+
+  try {
+    await db.delete(documents).where(eq(documents.id, doc.id));
+  } catch (err) {
+    console.error("document delete failed", err);
+    return NextResponse.json({ error: "删除失败" }, { status: 500 });
+  }
+
+  if (sourcePath) {
+    try {
+      await deleteUpload(sourcePath);
+    } catch (err) {
+      console.error("upload file cleanup failed", sourcePath, err);
+    }
+  }
+
+  return new NextResponse(null, { status: 204 });
 }

@@ -15,6 +15,9 @@ type DocumentListProps = {
   emptyTitle: string;
   emptyDescription: string;
   showStatus?: boolean;
+  allowDelete?: boolean;
+  deletingId?: string | null;
+  onDelete?: (doc: ShelfDocument) => void;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -48,6 +51,9 @@ export function DocumentList({
   emptyTitle,
   emptyDescription,
   showStatus = true,
+  allowDelete = false,
+  deletingId = null,
+  onDelete,
 }: DocumentListProps) {
   if (documents.length === 0) {
     return (
@@ -64,11 +70,8 @@ export function DocumentList({
     <ul className="divide-y divide-zinc-200 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
       {documents.map((doc) => (
         <li key={doc.id}>
-          <a
-            href={docHref(doc)}
-            className="flex flex-col gap-2 px-4 py-4 transition-colors hover:bg-zinc-50 sm:flex-row sm:items-center sm:justify-between dark:hover:bg-zinc-900/60"
-          >
-            <div className="min-w-0 space-y-1">
+          <div className="flex flex-col gap-2 px-4 py-4 transition-colors hover:bg-zinc-50 sm:flex-row sm:items-center sm:justify-between dark:hover:bg-zinc-900/60">
+            <a href={docHref(doc)} className="min-w-0 flex-1 space-y-1">
               <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">
                 {doc.title}
               </p>
@@ -79,7 +82,7 @@ export function DocumentList({
                   ? ` · 发布于 ${formatDate(doc.publishedAt)}`
                   : ""}
               </p>
-            </div>
+            </a>
             <div className="flex shrink-0 items-center gap-2 text-xs">
               {showStatus && (
                 <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
@@ -89,8 +92,22 @@ export function DocumentList({
               <span className="rounded-full border border-zinc-200 px-2.5 py-1 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
                 {doc.shelfVisibility === "public" ? "公开" : "私有"}
               </span>
+              {allowDelete && onDelete && (
+                <button
+                  type="button"
+                  disabled={deletingId === doc.id}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDelete(doc);
+                  }}
+                  className="rounded-lg border border-red-200 px-2.5 py-1 font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                >
+                  {deletingId === doc.id ? "删除中…" : "删除"}
+                </button>
+              )}
             </div>
-          </a>
+          </div>
         </li>
       ))}
     </ul>

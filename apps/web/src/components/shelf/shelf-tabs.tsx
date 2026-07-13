@@ -14,6 +14,7 @@ export function ShelfTabs() {
   const [documents, setDocuments] = useState<ShelfDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async (nextScope: Scope) => {
     setLoading(true);
@@ -43,6 +44,31 @@ export function ShelfTabs() {
   useEffect(() => {
     void load(scope);
   }, [scope, load]);
+
+  const handleDelete = useCallback(async (doc: ShelfDocument) => {
+    const ok = window.confirm(`确定删除《${doc.title}》？此操作不可恢复。`);
+    if (!ok) return;
+
+    setDeletingId(doc.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/documents/${doc.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setError(data.error ?? "删除失败");
+        return;
+      }
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+    } catch {
+      setError("网络错误");
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -81,7 +107,9 @@ export function ShelfTabs() {
         </div>
       </div>
 
-      {scope === "mine" && <UploadDropzone />}
+      {scope === "mine" && (
+        <UploadDropzone onUploaded={() => void load("mine")} />
+      )}
 
       {error && (
         <p
@@ -106,8 +134,11 @@ export function ShelfTabs() {
         <DocumentList
           documents={documents}
           emptyTitle="还没有文章"
-          emptyDescription="把 TXT / MD / PDF 拖到上方区域，或点击选择文件。处理完成后可在此审阅与发布。"
+          emptyDescription="把 TXT / MD / PDF 拖到上方区域，或点击选择文件（可多选）。处理完成后可在此审阅与发布。"
           showStatus
+          allowDelete
+          deletingId={deletingId}
+          onDelete={(doc) => void handleDelete(doc)}
         />
       ) : (
         <DocumentList

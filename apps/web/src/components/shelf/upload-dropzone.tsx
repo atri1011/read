@@ -1,65 +1,85 @@
 "use client";
 
-import { useCallback, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useRef, useState } from "react";
+import {
+  uploadDocuments,
+  type UploadFailure,
+} from "@/lib/documents/upload-client";
 
 const ACCEPT =
   ".txt,.md,.pdf,text/plain,text/markdown,application/pdf";
 
-export function UploadDropzone() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [pending, startTransition] = useTransition();
+type UploadDropzoneProps = {
+  onUploaded?: () => void;
+};
 
-  const uploadFile = useCallback(
-    (file: File) => {
-      startTransition(async () => {
-        setError(null);
-        const form = new FormData();
-        form.set("file", file);
-        try {
-          const res = await fetch("/api/documents", {
-            method: "POST",
-            body: form,
-          });
-          const data = (await res.json().catch(() => ({}))) as {
-            id?: string;
-            documentId?: string;
-            error?: string;
-          };
-          if (!res.ok) {
-            setError(data.error ?? "上传失败");
-            return;
-          }
-          const id = data.id ?? data.documentId;
-          if (id) {
-            router.push(`/app/docs/${id}/review`);
-            router.refresh();
-          } else {
-            setError("上传成功但未返回文档 id");
-          }
-        } catch {
-          setError("网络错误");
+export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [failures, setFailures] = useState<UploadFailure[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [successCount, setSuccessCount] = useState<number | null>(null);
+
+  const uploadFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList).filter((f) => f && f.size > 0);
+      if (files.length === 0) return;
+
+      setPending(true);
+      setError(null);
+      setFailures([]);
+      setSuccessCount(null);
+      setProgress({ done: 0, total: files.length });
+
+      try {
+        const results = await uploadDocuments(files, {
+          concurrency: 2,
+          onProgress: (done, total) => setProgress({ done, total }),
+        });
+        const failed = results.filter((r): r is UploadFailure => !r.ok);
+        const okCount = results.length - failed.length;
+        setFailures(failed);
+        setSuccessCount(okCount);
+        if (okCount === 0 && failed.length > 0) {
+          setError(`全部上传失败（${failed.length}）`);
+        } else if (failed.length > 0) {
+          setError(`成功 ${okCount}，失败 ${failed.length}`);
         }
-      });
+        if (okCount > 0) {
+          onUploaded?.();
+        }
+      } catch {
+        setError("网络错误");
+      } finally {
+        setPending(false);
+        setProgress(null);
+      }
     },
-    [router],
+    [onUploaded],
   );
 
   function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const list = e.target.files;
     e.target.value = "";
-    if (file) uploadFile(file);
+    if (list?.length) void uploadFiles(list);
   }
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) uploadFile(file);
+    if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
   }
+
+  const statusLabel = pending
+    ? progress
+      ? `上传中 ${progress.done}/${progress.total}…`
+      : "上传中…"
+    : "拖拽文件到此处，或点击选择（可多选）";
 
   return (
     <div className="space-y-2">
@@ -67,6 +87,7 @@ export function UploadDropzone() {
         ref={inputRef}
         type="file"
         accept={ACCEPT}
+        multiple
         className="hidden"
         onChange={onChange}
       />
@@ -76,7 +97,7 @@ export function UploadDropzone() {
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            inputRef.current?.click();
+            if (!pending) inputRef.current?.click();
           }
         }}
         onClick={() => {
@@ -102,16 +123,30 @@ export function UploadDropzone() {
         } ${pending ? "pointer-events-none opacity-60" : ""}`}
       >
         <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-          {pending ? "上传中…" : "拖拽文件到此处，或点击选择"}
+          {statusLabel}
         </p>
         <p className="mt-1 text-xs text-zinc-500">
-          支持 TXT / Markdown / PDF（建议 &lt; 50MB）
+          支持 TXT / Markdown / PDF，可一次多选（建议每个 &lt; 50MB）
         </p>
+        {successCount !== null && !pending && failures.length === 0 && (
+          <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+            已上传 {successCount} 个文件
+          </p>
+        )}
       </div>
       {error && (
         <p className="text-xs text-red-600 dark:text-red-400" role="alert">
           {error}
         </p>
+      )}
+      {failures.length > 0 && (
+        <ul className="space-y-1 text-xs text-red-600 dark:text-red-400">
+          {failures.map((f) => (
+            <li key={`${f.file.name}-${f.error}`}>
+              {f.file.name}: {f.error}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
