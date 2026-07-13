@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArticlePane } from "@/components/reader/article-pane";
-import { NotesPane } from "@/components/reader/notes-pane";
+import { ReaderShell } from "@/components/reader/reader-shell";
 import { ShelfVisibilityToggle } from "@/components/reader/shelf-visibility-toggle";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import {
@@ -55,7 +54,7 @@ export default async function ReadPage({ params }: PageProps) {
         <div className="flex min-w-0 items-center gap-3 text-sm">
           <Link
             href="/app/shelf"
-            className="shrink-0 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+            className="shrink-0 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
           >
             书架
           </Link>
@@ -82,14 +81,12 @@ export default async function ReadPage({ params }: PageProps) {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto px-4 py-8 sm:px-8 lg:px-12">
-          <div className="mx-auto max-w-3xl">
-            <ArticlePane title={doc.title} bodyHtml={revision.bodyHtml} />
-          </div>
-        </div>
-        <NotesPane />
-      </div>
+      <ReaderShell
+        documentId={doc.id}
+        title={doc.title}
+        bodyHtml={revision.bodyHtml}
+        currentUserId={user.id}
+      />
     </div>
   );
 }

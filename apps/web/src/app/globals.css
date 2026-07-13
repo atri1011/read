@@ -153,3 +153,94 @@ body {
   line-height: 1.7;
 }
 
+/* Annotation marks (applied by AnnotationLayer) */
+.ann-mark {
+  border-radius: 0.15em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.ann-type-highlight.ann-color-yellow,
+.ann-type-note.ann-color-yellow {
+  background-color: rgb(253 224 71 / 0.45);
+}
+.ann-type-highlight.ann-color-green,
+.ann-type-note.ann-color-green {
+  background-color: rgb(134 239 172 / 0.45);
+}
+.ann-type-highlight.ann-color-blue,
+.ann-type-note.ann-color-blue {
+  background-color: rgb(147 197 253 / 0.5);
+}
+.ann-type-highlight.ann-color-pink,
+.ann-type-note.ann-color-pink {
+  background-color: rgb(249 168 212 / 0.45);
+}
+
+.ann-type-underline {
+  background-color: transparent;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.ann-type-underline.ann-color-yellow {
+  text-decoration-color: rgb(202 138 4);
+}
+.ann-type-underline.ann-color-green {
+  text-decoration-color: rgb(22 163 74);
+}
+.ann-type-underline.ann-color-blue {
+  text-decoration-color: rgb(37 99 235);
+}
+.ann-type-underline.ann-color-pink {
+  text-decoration-color: rgb(219 39 119);
+}
+
+.ann-type-strike {
+  background-color: transparent;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  opacity: 0.85;
+}
+
+/* Others' public annotations: dashed outline */
+.ann-mark.ann-other {
+  outline: 1px dashed rgb(113 113 122 / 0.7);
+  outline-offset: 1px;
+}
+
+.ann-mark.ann-active {
+  outline: 2px solid rgb(63 63 70);
+  outline-offset: 1px;
+}
+
+.ann-mark.ann-orphaned {
+  opacity: 0.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ann-type-highlight.ann-color-yellow,
+  .ann-type-note.ann-color-yellow {
+    background-color: rgb(161 98 7 / 0.45);
+  }
+  .ann-type-highlight.ann-color-green,
+  .ann-type-note.ann-color-green {
+    background-color: rgb(21 128 61 / 0.4);
+  }
+  .ann-type-highlight.ann-color-blue,
+  .ann-type-note.ann-color-blue {
+    background-color: rgb(29 78 216 / 0.4);
+  }
+  .ann-type-highlight.ann-color-pink,
+  .ann-type-note.ann-color-pink {
+    background-color: rgb(157 23 77 / 0.4);
+  }
+  .ann-mark.ann-other {
+    outline-color: rgb(161 161 170 / 0.7);
+  }
+  .ann-mark.ann-active {
+    outline-color: rgb(212 212 216);
+  }
+}
+
+

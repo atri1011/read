@@ -1,3 +1,6 @@
+"use client";
+
+import { forwardRef, useMemo } from "react";
 import { extractTocFromHtml, type TocItem } from "@/lib/md/render";
 
 type ArticlePaneProps = {
@@ -35,25 +38,27 @@ function Toc({ items }: { items: TocItem[] }) {
   );
 }
 
-export function ArticlePane({
-  title,
-  bodyHtml,
-  showToc = true,
-}: ArticlePaneProps) {
-  const toc = showToc ? extractTocFromHtml(bodyHtml) : [];
+export const ArticlePane = forwardRef<HTMLDivElement, ArticlePaneProps>(
+  function ArticlePane({ title, bodyHtml, showToc = true }, ref) {
+    const toc = useMemo(
+      () => (showToc ? extractTocFromHtml(bodyHtml) : []),
+      [bodyHtml, showToc],
+    );
 
-  return (
-    <article className="min-w-0 flex-1">
-      <header className="mb-8 border-b border-zinc-200 pb-6 dark:border-zinc-800">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {title}
-        </h1>
-      </header>
-      <Toc items={toc} />
-      <div
-        className="reader-prose max-w-none text-[17px] leading-8 text-zinc-800 dark:text-zinc-100"
-        dangerouslySetInnerHTML={{ __html: bodyHtml }}
-      />
-    </article>
-  );
-}
+    return (
+      <article className="min-w-0 flex-1">
+        <header className="mb-8 border-b border-zinc-200 pb-6 dark:border-zinc-800">
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {title}
+          </h1>
+        </header>
+        <Toc items={toc} />
+        <div
+          ref={ref}
+          className="reader-prose max-w-none text-[17px] leading-8 text-zinc-800 dark:text-zinc-100"
+          dangerouslySetInnerHTML={{ __html: bodyHtml }}
+        />
+      </article>
+    );
+  },
+);
