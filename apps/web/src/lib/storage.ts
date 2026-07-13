@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 
@@ -23,4 +23,25 @@ export async function saveUpload(
 
 export function resolveUploadPath(relativeKey: string): string {
   return path.join(uploadRoot(), relativeKey);
+}
+
+export async function deleteUpload(relativeKey: string): Promise<void> {
+  if (!relativeKey || relativeKey.includes("\0")) {
+    throw new Error("invalid upload key");
+  }
+  // Normalize and block escaping the upload root
+  const root = path.resolve(uploadRoot());
+  const full = path.resolve(root, relativeKey);
+  const rel = path.relative(root, full);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("invalid upload key");
+  }
+
+  try {
+    await unlink(full);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    throw err;
+  }
 }
