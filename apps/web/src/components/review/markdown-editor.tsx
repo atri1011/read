@@ -11,27 +11,72 @@ type MarkdownEditorProps = {
   errorMessage?: string | null;
 };
 
+type JobProgress = {
+  stage?: string | null;
+  page?: number;
+  total?: number;
+};
+
+type LatestJobResponse = {
+  job?: {
+    id: string;
+    status: string;
+    progress: JobProgress | null;
+    error?: { code?: string; message?: string } | null;
+  } | null;
+};
+
+function progressLabel(progress: JobProgress | null): string {
+  if (!progress) return "准备中…";
+  const stage = progress.stage ?? "processing";
+  const page = progress.page ?? 0;
+  const total = progress.total ?? 0;
+  if (stage === "render") {
+    return total > 0 ? `正在渲染 PDF（共 ${total} 页）…` : "正在渲染 PDF…";
+  }
+  if (stage === "vision") {
+    if (total > 0) {
+      return `视觉模型识别中：第 ${page}/${total} 页`;
+    }
+    return "视觉模型识别中…";
+  }
+  if (stage === "importing_text") return "正在导入文本…";
+  if (stage === "done") return "处理完成";
+  if (stage === "queued") return "已排队，等待 worker…";
+  return `处理中（${stage}）`;
+}
+
 export function MarkdownEditor({
   documentId,
   initialTitle,
   initialMarkdown,
   status: initialStatus,
-  errorMessage,
+  errorMessage: initialErrorMessage,
 }: MarkdownEditorProps) {
   const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
   const [markdown, setMarkdown] = useState(initialMarkdown);
   const [status, setStatus] = useState(initialStatus);
+  const [docError, setDocError] = useState<string | null>(initialErrorMessage ?? null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [progress, setProgress] = useState<JobProgress | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   const canEdit = status === "review" || status === "published";
   const dirty = useMemo(
     () => title !== initialTitle || markdown !== initialMarkdown,
     [title, markdown, initialTitle, initialMarkdown],
   );
+
+  const percent = useMemo(() => {
+    const page = progress?.page ?? 0;
+    const total = progress?.total ?? 0;
+    if (total <= 0) return null;
+    return Math.min(100, Math.round((page / total) * 100));
+  }, [progress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,41 +108,69 @@ export function MarkdownEditor({
     };
   }, [markdown]);
 
-  // poll while processing / uploaded
+  // poll document + job progress while processing / uploaded
   useEffect(() => {
     if (status !== "processing" && status !== "uploaded") return;
-    const t = setInterval(async () => {
+
+    let cancelled = false;
+
+    async function tick() {
       try {
-        const res = await fetch(`/api/documents/${documentId}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          document?: {
-            status: string;
-            draftMarkdown: string | null;
-            title: string;
-            errorMessage?: string | null;
-          };
-        };
-        if (!data.document) return;
-        setStatus(data.document.status);
-        if (data.document.draftMarkdown != null) {
-          setMarkdown(data.document.draftMarkdown);
+        const [docRes, jobRes] = await Promise.all([
+          fetch(`/api/documents/${documentId}`, { cache: "no-store" }),
+          fetch(`/api/documents/${documentId}/jobs/latest`, { cache: "no-store" }),
+        ]);
+
+        if (!cancelled && jobRes.ok) {
+          const jobData = (await jobRes.json()) as LatestJobResponse;
+          if (jobData.job?.progress) {
+            setProgress({
+              stage: jobData.job.progress.stage ?? null,
+              page: Number(jobData.job.progress.page ?? 0) || 0,
+              total: Number(jobData.job.progress.total ?? 0) || 0,
+            });
+          }
         }
-        if (data.document.title) setTitle(data.document.title);
-        if (
-          data.document.status === "review" ||
-          data.document.status === "failed" ||
-          data.document.status === "published"
-        ) {
-          router.refresh();
+
+        if (!cancelled && docRes.ok) {
+          const data = (await docRes.json()) as {
+            document?: {
+              status: string;
+              draftMarkdown: string | null;
+              title: string;
+              errorMessage?: string | null;
+            };
+          };
+          if (!data.document) return;
+          setStatus(data.document.status);
+          if (data.document.draftMarkdown != null) {
+            setMarkdown(data.document.draftMarkdown);
+          }
+          if (data.document.title) setTitle(data.document.title);
+          if (data.document.errorMessage !== undefined) {
+            setDocError(data.document.errorMessage);
+          }
+          if (
+            data.document.status === "review" ||
+            data.document.status === "failed" ||
+            data.document.status === "published"
+          ) {
+            router.refresh();
+          }
         }
       } catch {
         // ignore transient poll errors
       }
+    }
+
+    void tick();
+    const t = setInterval(() => {
+      void tick();
     }, 2000);
-    return () => clearInterval(t);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [status, documentId, router]);
 
   async function save() {
@@ -153,15 +226,55 @@ export function MarkdownEditor({
     });
   }
 
+  async function retryParse() {
+    setError(null);
+    setMessage(null);
+    setRetrying(true);
+    try {
+      const res = await fetch(`/api/documents/${documentId}/retry`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "重试失败");
+        return;
+      }
+      setStatus("processing");
+      setDocError(null);
+      setProgress({ stage: "queued", page: 0, total: 0 });
+      setMessage("已重新排队解析");
+      router.refresh();
+    } catch {
+      setError("重试失败");
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   if (status === "processing" || status === "uploaded") {
     return (
       <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
         <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
           正在处理文档…
         </p>
-        <p className="mt-2 text-sm text-zinc-500">
-          文本导入完成后将进入审阅。状态：{status}
-        </p>
+        <p className="mt-2 text-sm text-zinc-500">{progressLabel(progress)}</p>
+        {percent != null && (
+          <div className="mx-auto mt-5 max-w-md">
+            <div className="mb-1 flex justify-between text-xs text-zinc-500">
+              <span>
+                {progress?.page ?? 0}/{progress?.total ?? 0} 页
+              </span>
+              <span>{percent}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+              <div
+                className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        )}
+        <p className="mt-4 text-xs text-zinc-400">文档状态：{status}</p>
       </div>
     );
   }
@@ -173,8 +286,28 @@ export function MarkdownEditor({
           处理失败
         </p>
         <p className="mt-2 text-sm text-red-700 dark:text-red-300">
-          {errorMessage || "请重新上传，或稍后再试。PDF 解析将在后续版本提供。"}
+          {docError || errorMessageFallback()}
         </p>
+        {error && (
+          <p className="mt-3 text-sm text-red-700 dark:text-red-300" role="status">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p className="mt-3 text-sm text-emerald-800 dark:text-emerald-200" role="status">
+            {message}
+          </p>
+        )}
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => void retryParse()}
+            disabled={retrying}
+            className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500"
+          >
+            {retrying ? "重新排队中…" : "重试解析"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -247,4 +380,8 @@ export function MarkdownEditor({
       </div>
     </div>
   );
+}
+
+function errorMessageFallback(): string {
+  return "请点击重试，或重新上传。";
 }
