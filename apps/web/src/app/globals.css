@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
+/* Class-based dark mode (ThemeToggle + localStorage) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
+  --background: #fafafa;
   --foreground: #171717;
+}
+
+.dark {
+  --background: #09090b;
+  --foreground: #ededed;
 }
 
 @theme inline {
@@ -12,17 +20,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
 /* Reader article typography (no @tailwindcss/typography dependency) */
@@ -115,21 +116,19 @@ body {
   margin: 2em 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  .reader-prose blockquote {
-    border-left-color: #3f3f46;
-    color: #a1a1aa;
-  }
-  .reader-prose pre,
-  .reader-prose :not(pre) > code {
-    background: #18181b;
-  }
-  .reader-prose a {
-    color: #60a5fa;
-  }
-  .reader-prose hr {
-    border-top-color: #27272a;
-  }
+.dark .reader-prose blockquote {
+  border-left-color: #3f3f46;
+  color: #a1a1aa;
+}
+.dark .reader-prose pre,
+.dark .reader-prose :not(pre) > code {
+  background: #18181b;
+}
+.dark .reader-prose a {
+  color: #60a5fa;
+}
+.dark .reader-prose hr {
+  border-top-color: #27272a;
 }
 
 /* simple preview helpers on review page */
@@ -218,29 +217,27 @@ body {
   opacity: 0.5;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ann-type-highlight.ann-color-yellow,
-  .ann-type-note.ann-color-yellow {
-    background-color: rgb(161 98 7 / 0.45);
-  }
-  .ann-type-highlight.ann-color-green,
-  .ann-type-note.ann-color-green {
-    background-color: rgb(21 128 61 / 0.4);
-  }
-  .ann-type-highlight.ann-color-blue,
-  .ann-type-note.ann-color-blue {
-    background-color: rgb(29 78 216 / 0.4);
-  }
-  .ann-type-highlight.ann-color-pink,
-  .ann-type-note.ann-color-pink {
-    background-color: rgb(157 23 77 / 0.4);
-  }
-  .ann-mark.ann-other {
-    outline-color: rgb(161 161 170 / 0.7);
-  }
-  .ann-mark.ann-active {
-    outline-color: rgb(212 212 216);
-  }
+.dark .ann-type-highlight.ann-color-yellow,
+.dark .ann-type-note.ann-color-yellow {
+  background-color: rgb(161 98 7 / 0.45);
+}
+.dark .ann-type-highlight.ann-color-green,
+.dark .ann-type-note.ann-color-green {
+  background-color: rgb(21 128 61 / 0.4);
+}
+.dark .ann-type-highlight.ann-color-blue,
+.dark .ann-type-note.ann-color-blue {
+  background-color: rgb(29 78 216 / 0.4);
+}
+.dark .ann-type-highlight.ann-color-pink,
+.dark .ann-type-note.ann-color-pink {
+  background-color: rgb(157 23 77 / 0.4);
+}
+.dark .ann-mark.ann-other {
+  outline-color: rgb(161 161 170 / 0.7);
+}
+.dark .ann-mark.ann-active {
+  outline-color: rgb(212 212 216);
 }
 
 

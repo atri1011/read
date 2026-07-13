@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 export default async function AppLayout({
@@ -30,6 +31,7 @@ export default async function AppLayout({
             </nav>
           </div>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             {user && (
               <span className="hidden text-sm text-zinc-500 sm:inline">
                 {user.name || user.email}
