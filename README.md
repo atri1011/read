@@ -1,8 +1,16 @@
 # English Reader MVP
 
-Self-hosted English reading app: TXT/MD/PDF upload, vision-LLM layout restore, annotations, and bilingual lookup.
+Self-hosted English reading app: TXT/MD/PDF upload, vision-LLM layout restore, annotations, and bilingual dictionary lookup.
 
-## Quick start
+## Features (MVP)
+
+- Email/password auth and personal + public shelves  
+- Upload TXT / Markdown / PDF; PDF parse via vision-capable OpenAI-compatible API  
+- Markdown review → publish → reader with highlights, underlines, notes  
+- Bilingual word lookup (EN definitions + ZH gloss) with Redis/memory cache  
+- Dark mode, reader font size / measure, sticky TOC  
+
+## Quick start (local)
 
 1. Copy env defaults:
 
@@ -10,7 +18,7 @@ Self-hosted English reading app: TXT/MD/PDF upload, vision-LLM layout restore, a
 cp .env.example .env
 ```
 
-2. Fill in `LLM_API_KEY` and change `SESSION_SECRET` in `.env`.
+2. Fill in `LLM_API_KEY` and change `SESSION_SECRET` (and prefer a non-default `POSTGRES_PASSWORD`) in `.env`.
 
 3. Start the stack:
 
@@ -20,8 +28,63 @@ docker compose up --build
 
 App: [http://localhost:3000](http://localhost:3000)
 
-> Note: `apps/web` and `workers/parser` are added in later tasks. Until then, the `web` and `worker` services will fail to build.
+Services: `web` (Next.js), `worker` (Python PDF/text parser), `db` (Postgres 16), `redis` (queue + dict cache).
 
-## Host reverse proxy
+### Local web-only development
 
-This compose stack binds ports for local development only. On a real host, put a reverse proxy (Caddy, Nginx, or Traefik) in front of `web:3000`, terminate TLS there, and **do not publish Postgres/Redis to the public internet**. Change `POSTGRES_PASSWORD` (and matching `DATABASE_URL`) before any shared/public host. See [DESIGN.md](./DESIGN.md) for deployment notes.
+If Postgres/Redis already run via Compose:
+
+```bash
+docker compose up -d db redis
+cd apps/web
+# point DATABASE_URL / REDIS_URL at localhost in .env
+npm install
+npm run dev
+```
+
+Worker (optional, for PDF jobs):
+
+```bash
+cd workers/parser
+# install per workers/parser README / pyproject
+```
+
+## Dictionary API
+
+`GET /api/dictionary?q=word` (session required)
+
+- **EN senses:** [Free Dictionary API](https://dictionaryapi.dev/)  
+- **ZH gloss:** [MyMemory](https://mymemory.translated.net/) for the headword (rate-limited; best-effort)  
+- **Cache:** Redis key `dict:{q}` TTL 7 days when `REDIS_URL` works; in-process `Map` fallback  
+
+## Deploy on a VPS
+
+See **[docs/deploy-vps.md](./docs/deploy-vps.md)** for:
+
+- Caddy/Nginx reverse proxy to `127.0.0.1:3000`  
+- Production Compose port binding  
+- `pg_dump` + uploads volume backup  
+
+Minimal Caddy example:
+
+```caddy
+reader.example.com {
+  reverse_proxy 127.0.0.1:3000
+}
+```
+
+On a real host, terminate TLS at the reverse proxy and **do not publish Postgres/Redis** to the public internet.
+
+## Repo layout
+
+```text
+apps/web          Next.js app (API + UI)
+workers/parser    Python job worker
+docs/             Deploy and planning notes
+docker-compose.yml
+DESIGN.md
+```
+
+## Design
+
+See [DESIGN.md](./DESIGN.md) for product scope, data model, and non-goals.
