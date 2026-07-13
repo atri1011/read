@@ -5,8 +5,27 @@ import { createSession } from "@/lib/auth/session";
 import { registerSchema } from "@/lib/auth/schemas";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import {
+  AUTH_RATE_LIMIT,
+  clientIp,
+  rateLimit,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  const ip = clientIp(request);
+  const rl = await rateLimit(
+    `auth:register:${ip}`,
+    AUTH_RATE_LIMIT.limit,
+    AUTH_RATE_LIMIT.windowMs,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "请求过于频繁，请稍后再试" },
+      { status: 429, headers: rateLimitHeaders(rl) },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();

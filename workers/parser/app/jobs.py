@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app import db
+from app.logging_util import log_json
 from app.pdf_render import render_pdf_pages
 from app.settings import settings
 from app.text_import import load_text_file, to_markdown
@@ -66,6 +67,14 @@ async def _pdf_pages_to_markdown(
     for index, image_path in enumerate(page_paths, start=1):
         progress = {"stage": "vision", "page": index, "total": total}
         db.set_job_progress(conn, job_id, progress)
+        log_json(
+            event="job_progress",
+            job_id=job_id,
+            document_id=document_id,
+            stage="vision",
+            page=index,
+            total=total,
+        )
         try:
             md = await page_to_markdown(image_path, index, total)
         except VisionLLMError as exc:
@@ -86,6 +95,14 @@ def _process_pdf(conn: Any, job_id: str, document_id: str, source: Path) -> tupl
     out_dir = _page_render_dir(document_id, job_id)
     try:
         db.set_job_progress(conn, job_id, {"stage": "render", "page": 0, "total": 0})
+        log_json(
+            event="job_progress",
+            job_id=job_id,
+            document_id=document_id,
+            stage="render",
+            page=0,
+            total=0,
+        )
         try:
             page_paths = render_pdf_pages(source, out_dir)
         except Exception as exc:  # noqa: BLE001 — map render failures
@@ -97,6 +114,14 @@ def _process_pdf(conn: Any, job_id: str, document_id: str, source: Path) -> tupl
 
         total = len(page_paths)
         db.set_job_progress(conn, job_id, {"stage": "render", "page": 0, "total": total})
+        log_json(
+            event="job_progress",
+            job_id=job_id,
+            document_id=document_id,
+            stage="render",
+            page=0,
+            total=total,
+        )
         md = asyncio.run(
             _pdf_pages_to_markdown(
                 page_paths,
@@ -114,7 +139,7 @@ def process_job(job_id: str) -> None:
     with db.connect() as conn:
         row = db.get_job_with_document(conn, job_id)
         if not row:
-            print(f"job {job_id}: not found, skipping", flush=True)
+            log_json(event="job_skip", job_id=job_id, reason="not_found")
             return
 
         document_id = str(row["document_id"])
@@ -123,7 +148,14 @@ def process_job(job_id: str) -> None:
         mime = (row["source_mime"] or "").lower()
 
         db.mark_job_running(conn, job_id)
-        print(f"job {job_id}: running for document {document_id} ({filename})", flush=True)
+        log_json(
+            event="job_start",
+            job_id=job_id,
+            document_id=document_id,
+            stage="start",
+            source_filename=filename,
+            source_mime=mime or None,
+        )
 
         try:
             path = _source_path(row["source_path"])
@@ -139,7 +171,14 @@ def process_job(job_id: str) -> None:
                     {"stage": "done", "page": total, "total": total},
                 )
                 db.mark_job_succeeded(conn, job_id)
-                print(f"job {job_id}: succeeded → review (pdf)", flush=True)
+                log_json(
+                    event="job_success",
+                    job_id=job_id,
+                    document_id=document_id,
+                    stage="done",
+                    kind="pdf",
+                    pages=total,
+                )
                 return
 
             if not (lower.endswith(".txt") or lower.endswith(".md")):
@@ -149,11 +188,23 @@ def process_job(job_id: str) -> None:
                 )
 
             db.set_job_progress(conn, job_id, {"stage": "importing_text"})
+            log_json(
+                event="job_progress",
+                job_id=job_id,
+                document_id=document_id,
+                stage="importing_text",
+            )
             text = load_text_file(path)
             md = to_markdown(text, filename)
             db.set_document_review(conn, document_id, md)
             db.mark_job_succeeded(conn, job_id)
-            print(f"job {job_id}: succeeded → review", flush=True)
+            log_json(
+                event="job_success",
+                job_id=job_id,
+                document_id=document_id,
+                stage="done",
+                kind="text",
+            )
 
         except JobError as exc:
             db.mark_job_failed(
@@ -163,7 +214,15 @@ def process_job(job_id: str) -> None:
                 progress=exc.progress or None,
             )
             db.set_document_failed(conn, document_id, exc.message)
-            print(f"job {job_id}: failed {exc.code}: {exc.message}", flush=True)
+            log_json(
+                event="job_error",
+                job_id=job_id,
+                document_id=document_id,
+                stage=(exc.progress or {}).get("stage") or "failed",
+                error_code=exc.code,
+                error=exc.message,
+                progress=exc.progress or None,
+            )
 
         except Exception as exc:  # noqa: BLE001 — worker boundary
             db.mark_job_failed(
@@ -172,4 +231,11 @@ def process_job(job_id: str) -> None:
                 {"code": "internal_error", "message": str(exc)},
             )
             db.set_document_failed(conn, document_id, "parse failed")
-            print(f"job {job_id}: internal error: {exc}", flush=True)
+            log_json(
+                event="job_error",
+                job_id=job_id,
+                document_id=document_id,
+                stage="failed",
+                error_code="internal_error",
+                error=str(exc),
+            )

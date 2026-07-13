@@ -6,16 +6,15 @@ import time
 import redis
 
 from app.jobs import process_job
+from app.logging_util import log_json
 from app.settings import settings
 
 
 def main() -> None:
-    print(
-        "parser worker starting",
-        settings.queue_name,
-        "concurrency=",
-        settings.concurrency,
-        flush=True,
+    log_json(
+        event="worker_start",
+        queue=settings.queue_name,
+        concurrency=settings.concurrency,
     )
     client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
@@ -23,7 +22,7 @@ def main() -> None:
         try:
             item = client.brpop(settings.queue_name, timeout=5)
         except redis.RedisError as exc:
-            print(f"redis error: {exc}; retrying in 2s", flush=True)
+            log_json(event="redis_error", error=str(exc), stage="brpop")
             time.sleep(2)
             continue
 
@@ -34,13 +33,29 @@ def main() -> None:
         try:
             payload = json.loads(raw)
             job_id = payload.get("jobId") or payload.get("job_id")
+            document_id = payload.get("documentId") or payload.get("document_id")
             if not job_id:
-                print(f"invalid payload (no jobId): {raw!r}", flush=True)
+                log_json(
+                    event="invalid_payload",
+                    error="missing_job_id",
+                    raw=raw[:500],
+                )
                 continue
-        except json.JSONDecodeError:
-            print(f"invalid json payload: {raw!r}", flush=True)
+        except json.JSONDecodeError as exc:
+            log_json(
+                event="invalid_payload",
+                error="invalid_json",
+                detail=str(exc),
+                raw=raw[:500],
+            )
             continue
 
+        log_json(
+            event="job_dequeued",
+            job_id=str(job_id),
+            document_id=str(document_id) if document_id else None,
+            stage="dequeued",
+        )
         # concurrency=1: process sequentially in this loop
         process_job(str(job_id))
 

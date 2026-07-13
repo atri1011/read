@@ -29,11 +29,14 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-    env_file: .env
+    # Intentionally no full env_file: keep LLM_* out of the web container.
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
       UPLOAD_DIR: /data/uploads
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      NODE_ENV: production
     volumes:
       - uploads:/data/uploads
     ports:
@@ -53,6 +56,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       UPLOAD_DIR: /data/uploads
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
     volumes:
       - uploads:/data/uploads
     depends_on:

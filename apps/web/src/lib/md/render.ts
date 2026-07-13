@@ -3,6 +3,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import rehypeSlug from "rehype-slug";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import type { Options as SanitizeSchema } from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { Root, Element } from "hast";
 import type { Plugin } from "unified";
@@ -21,16 +22,51 @@ const BLOCK_TAGS = new Set([
   "pre",
 ]);
 
-const sanitizeSchema = {
+const DENY_TAGS = new Set([
+  "script",
+  "style",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "input",
+  "button",
+  "textarea",
+  "select",
+  "option",
+]);
+
+/**
+ * Tight allowlist on top of rehype-sanitize defaults:
+ * - no script/style/iframe/object/embed/form (and no event handlers: on*)
+ * - only safe URL protocols on href/src
+ * - permit data-block-id for annotation anchors (camelCase in HAST)
+ */
+const baseAttrs = defaultSchema.attributes ?? {};
+const starAttrs = [...(baseAttrs["*"] ?? [])];
+const sanitizeSchema: SanitizeSchema = {
   ...defaultSchema,
+  tagNames: (defaultSchema.tagNames ?? []).filter((tag) => !DENY_TAGS.has(tag)),
   attributes: {
-    ...defaultSchema.attributes,
+    ...baseAttrs,
+    a: [...(baseAttrs.a ?? [])],
+    img: [...(baseAttrs.img ?? [])],
+    code: [...(baseAttrs.code ?? []), "className"],
     "*": [
-      ...((defaultSchema.attributes && defaultSchema.attributes["*"]) || []),
+      ...starAttrs,
       // hast-util-sanitize uses camelCase for data-* properties
       "dataBlockId",
+      "id",
+      "className",
     ],
   },
+  protocols: {
+    ...defaultSchema.protocols,
+    href: ["http", "https", "mailto"],
+    src: ["http", "https"],
+  },
+  // Prefix clobbering ids that could shadow DOM APIs
+  clobberPrefix: "user-content-",
 };
 
 /**
