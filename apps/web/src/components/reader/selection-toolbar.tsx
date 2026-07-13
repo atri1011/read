@@ -12,9 +12,17 @@ export type ToolbarAction = {
   anchor: TextAnchor;
 };
 
+export type DictRequest = {
+  word: string;
+  anchor: TextAnchor;
+};
+
 type Props = {
   rootRef: React.RefObject<HTMLElement | null>;
   onAnnotate: (action: ToolbarAction) => void | Promise<void>;
+  onDictionary?: (req: DictRequest) => void;
+  /** Prefill note body when opening note mode (e.g. from dict popup). */
+  prefillNote?: { body: string; nonce: number } | null;
   disabled?: boolean;
 };
 
@@ -28,7 +36,13 @@ const COLORS: Array<{ id: "yellow" | "green" | "blue" | "pink"; label: string; s
 
 type Pos = { top: number; left: number };
 
-export function SelectionToolbar({ rootRef, onAnnotate, disabled }: Props) {
+export function SelectionToolbar({
+  rootRef,
+  onAnnotate,
+  onDictionary,
+  prefillNote,
+  disabled,
+}: Props) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState<Pos>({ top: 0, left: 0 });
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
@@ -40,6 +54,17 @@ export function SelectionToolbar({ rootRef, onAnnotate, disabled }: Props) {
   const barRef = useRef<HTMLDivElement>(null);
   // Keep last non-collapsed selection range so clicks on toolbar don't lose it
   const savedRangeRef = useRef<Range | null>(null);
+  const lastPrefillNonce = useRef(0);
+
+  // Allow dict popup "加入笔记" to open note mode with prefilled body
+  useEffect(() => {
+    if (!prefillNote || prefillNote.nonce === lastPrefillNonce.current) return;
+    lastPrefillNonce.current = prefillNote.nonce;
+    if (!anchor) return;
+    setNoteMode(true);
+    setNoteBody(prefillNote.body);
+    setVisible(true);
+  }, [prefillNote, anchor]);
 
   useEffect(() => {
     function hide() {
@@ -207,6 +232,19 @@ export function SelectionToolbar({ rootRef, onAnnotate, disabled }: Props) {
         >
           笔记
         </button>
+        {onDictionary && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!anchor) return;
+              onDictionary({ word: anchor.exact, anchor });
+            }}
+            className="rounded-md px-2 py-1 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            词典
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}
