@@ -114,7 +114,7 @@ export function ShelfTabs() {
             )}
           </p>
         </div>
-        <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="inline-flex rounded-xl border border-zinc-200/80 bg-white/80 p-1 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/60">
           {(
             [
               { id: "mine", label: "我的" },
@@ -129,7 +129,7 @@ export function ShelfTabs() {
                 onClick={() => setScope(tab.id)}
                 className={
                   active
-                    ? "rounded-lg bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    ? "rounded-lg bg-[var(--shelf-card-fg)] px-4 py-1.5 text-sm font-medium text-[var(--shelf-card-bg)]"
                     : "rounded-lg px-4 py-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 }
               >
@@ -154,14 +154,16 @@ export function ShelfTabs() {
       )}
 
       {loading ? (
-        <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          {[0, 1, 2].map((i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
             <div
               key={i}
-              className="h-14 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900"
+              className="aspect-[4/5] animate-pulse rounded-2xl border border-[var(--shelf-card-border)] bg-[var(--shelf-card-bg)]"
             />
           ))}
-          <p className="pt-2 text-center text-sm text-zinc-400">加载书架…</p>
+          <p className="col-span-full pt-2 text-center text-sm text-zinc-400">
+            加载书架…
+          </p>
         </div>
       ) : scope === "mine" ? (
         <DocumentList
