@@ -79,7 +79,7 @@ export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
     ? progress
       ? `上传中 ${progress.done}/${progress.total}…`
       : "上传中…"
-    : "拖拽文件到此处，或点击选择（可多选）";
+    : "放下文件，加入书架";
 
   return (
     <div className="space-y-2">
@@ -116,13 +116,12 @@ export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
           setDragOver(false);
         }}
         onDrop={onDrop}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition ${
-          dragOver
-            ? "border-zinc-900 bg-zinc-100 dark:border-zinc-100 dark:bg-zinc-900"
-            : "border-zinc-300 bg-white hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:border-zinc-500 dark:hover:bg-zinc-900/60"
-        } ${pending ? "pointer-events-none opacity-60" : ""}`}
+        className={`shelf-upload-slot flex cursor-pointer flex-col items-center justify-center rounded-2xl px-6 py-10 text-center ${
+          pending ? "pointer-events-none opacity-60" : ""
+        }`}
+        data-dragover={dragOver ? "true" : "false"}
       >
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+        <p className="text-sm font-medium text-[var(--shelf-card-fg)]">
           {statusLabel}
         </p>
         <p className="mt-1 text-xs text-zinc-500">
