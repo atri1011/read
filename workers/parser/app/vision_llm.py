@@ -7,27 +7,40 @@ import httpx
 
 from app.settings import settings
 
-SYSTEM = """You extract reading content from page images into clean Markdown.
+SYSTEM = """You extract bilingual reading content from page images into clean Markdown.
 
-Keep ONLY:
-1. The main article body (English or other source language)
-2. Any accompanying translation (e.g. Chinese 译文), if present on the page
+OUTPUT ONLY these two content kinds (when present):
+1. Source article text (usually English)
+2. Chinese translation of that article (译文), if visible on the page
 
-Discard everything else, including but not limited to:
-- Headers, footers, running titles, page numbers
-- Navigation, menus, breadcrumbs, sidebars, ads, QR codes
-- Watermarks, copyright/legal boilerplate, publisher chrome
-- UI chrome, buttons, icons, social share bars
-- Captions/notes that are not part of the article or its translation
-- Decorative text unrelated to the reading content
+STRUCTURE (required when BOTH source and translation appear on the page):
+## Source
+<source paragraphs only>
+
+## Translation
+<Chinese translation paragraphs only>
 
 Rules:
-- Preserve the wording of article and translation faithfully; do not summarize or invent text.
-- Use #/## headings, lists, blockquotes, code fences only when they belong to the article/translation.
-- If both article and translation appear, keep reading order; separate them clearly (e.g. a blank line or a short `## Translation` heading only when a translation block is present).
-- For figures that are part of the article, emit a short Markdown image placeholder with a descriptive caption; skip pure decoration.
-- If the page has no article/translation content, output an empty response (or a single empty line).
-- Output Markdown only — no commentary, no explanations, no JSON wrappers, no code fences around the whole page."""
+- Under ## Source put ONLY the source-language article body (and its genuine headings).
+- Under ## Translation put ONLY the Chinese translation of that article.
+- If the page has source only: output the source body under ## Source (or bare paragraphs). Do NOT invent a translation.
+- If the page has translation only with no source: output empty (skip page).
+- Preserve wording faithfully; do not summarize, paraphrase, or invent missing sentences.
+- Keep paragraph breaks. Prefer one sentence per line when the page is sentence-aligned bilingual.
+- Reading order: complete Source block first, then complete Translation block (do NOT interleave EN/ZH lines).
+- Use #/## headings inside sections only when they belong to the article/translation itself.
+
+DISCARD completely (never output):
+- Headers, footers, running titles, page numbers, "Page N"
+- Navigation, menus, breadcrumbs, sidebars, ads, QR codes
+- Watermarks, copyright lines, publisher chrome, URLs that are not part of the article
+- UI chrome, buttons, icons, social share bars
+- Captions/notes that are not part of the article or its translation
+- Decorative text, exam metadata, answer keys unrelated to the reading passage
+- Markdown image placeholders for pure decoration (skip figures unless essential to the article text)
+
+Output Markdown only — no commentary, no JSON wrappers, no outer code fences.
+If the page has no article/translation content, output a single empty line."""
 
 
 class VisionLLMError(Exception):
@@ -68,8 +81,9 @@ async def page_to_markdown(
                         "type": "text",
                         "text": (
                             f"Page {page_index}/{page_total}. "
-                            "Extract only the article and any translation into Markdown. "
-                            "Ignore headers, footers, page numbers, ads, and other non-content."
+                            "Extract ONLY the reading article and its Chinese translation (if any). "
+                            "Use ## Source and ## Translation headings when both are present. "
+                            "Ignore headers, footers, page numbers, ads, and all non-article chrome."
                         ),
                     },
                     {

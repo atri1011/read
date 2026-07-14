@@ -49,6 +49,10 @@ export function progressLabel(progress: JobProgress | null | undefined): string 
   }
   if (stage === "importing_text") return "正在导入文本…";
   if (stage === "segment") return "正在切句并对齐译文…";
+  if (stage === "realign") {
+    if (total > 0) return `正在核对原文与译文：${page}/${total} 句`;
+    return "正在核对原文与译文对齐…";
+  }
   if (stage === "translate") {
     if (total > 0) return `正在补译：${page}/${total} 句`;
     return "正在生成中文译文…";
@@ -115,6 +119,7 @@ export function progressBadgeText(
   if (stage === "render") return total > 0 ? `渲染 ${total} 页` : "渲染中";
   if (stage === "importing_text") return "导入文本";
   if (stage === "segment") return "切句中";
+  if (stage === "realign") return total > 0 ? `核对 ${page}/${total}` : "核对对齐";
   if (stage === "queued") return "排队中";
   if (stage === "done") return "即将完成";
   return stage;

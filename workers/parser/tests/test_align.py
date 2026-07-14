@@ -105,3 +105,63 @@ def test_no_cjk_as_source() -> None:
     md = "# 只有中文标题\n\n只有中文段落，没有英文。"
     segs = align_markdown(md)
     assert segs == []
+
+
+def test_source_and_translation_sections() -> None:
+    md = (
+        "## Source\n\n"
+        "The cat sat on the mat.\n\n"
+        "It looked content.\n\n"
+        "## Translation\n\n"
+        "猫蹲在垫子上。\n\n"
+        "它看起来很满足。"
+    )
+    segs = align_markdown(md)
+    assert len(segs) == 2
+    assert segs[0]["source"].startswith("The cat")
+    assert "猫" in segs[0]["target"]
+    assert segs[1]["source"].startswith("It looked")
+    assert "满足" in segs[1]["target"]
+    assert segs[0]["origin"] == "extracted"
+    assert not any("Source" in s["source"] for s in segs)
+
+
+def test_length_zip_skips_extra_zh_midstream() -> None:
+    """Extra short ZH title mid-stream should not shift later pairs."""
+    md = (
+        "## Source\n\n"
+        "In today's digital world short videos are popular among teenagers everywhere.\n\n"
+        "But why are they so attractive to young people nowadays?\n\n"
+        "These videos are designed to grab attention quickly and hold it.\n\n"
+        "## Translation\n\n"
+        "短视频\n\n"
+        "在如今的数字时代，短视频在青少年中非常流行。\n\n"
+        "但为何它们对年轻人如此具有吸引力呢？\n\n"
+        "这些短视频的设计初衷就是快速抓住注意力并保持。"
+    )
+    segs = align_markdown(md)
+    assert len(segs) == 3
+    assert segs[0]["source"].startswith("In today's")
+    assert "数字时代" in segs[0]["target"] or "流行" in segs[0]["target"]
+    assert segs[1]["source"].startswith("But why")
+    assert "吸引" in segs[1]["target"]
+    assert segs[2]["source"].startswith("These videos")
+    assert "注意力" in segs[2]["target"]
+    # The orphan title must not become a target of the first long sentence alone
+    assert segs[0]["target"].strip() != "短视频"
+
+
+def test_junk_blocks_do_not_become_sources() -> None:
+    md = (
+        "Hello world this is a real sentence.\n\n"
+        "12\n\n"
+        "Page 3\n\n"
+        "你好，这是真实的一句译文。\n\n"
+        "Second English sentence is here now.\n\n"
+        "第二句英文对应的中文译文。"
+    )
+    segs = align_markdown(md)
+    assert all("Page" not in s["source"] for s in segs)
+    assert all(s["source"] not in {"12", "Page 3"} for s in segs)
+    assert any(s["source"].startswith("Hello") for s in segs)
+    assert any("你好" in s["target"] for s in segs if s["target"])

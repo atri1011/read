@@ -12,6 +12,31 @@ _EN_SENT_END = re.compile(r"([.!?]+)(?:\s+|$)")
 _ZH_SENT_END = re.compile(r"([。！？]+)(?:\s*|$)")
 _CJK = re.compile(r"[一-鿿]")
 
+_PAGE_NUM = re.compile(
+    r"^(?:page\s*)?\d{1,4}$"
+    r"|^[—\-–]\s*\d{1,4}\s*[—\-–]$"
+    r"|^第\s*\d+\s*页$",
+    re.IGNORECASE,
+)
+_URL_ONLY = re.compile(r"^https?://\S+$", re.IGNORECASE)
+_IMAGE_ONLY = re.compile(r"^!\[[^\]]*\]\([^)]*\)$")
+_HR_ONLY = re.compile(r"^(?:---|\*\*\*|___)$")
+
+_SOURCE_HEADINGS = frozenset(
+    {"source", "原文", "english", "article", "正文", "english source"}
+)
+_TRANSLATION_HEADINGS = frozenset(
+    {
+        "translation",
+        "译文",
+        "中文译文",
+        "chinese translation",
+        "中文",
+        "zh",
+        "chinese",
+    }
+)
+
 
 def strip_page_separators(markdown: str) -> str:
     return re.sub(r"\n\s*---\s*\n", "\n\n", markdown)
@@ -37,9 +62,42 @@ def is_heading(block: str) -> bool:
     return bool(re.match(r"^#{1,6}\s+\S", block))
 
 
+def _heading_plain(block: str) -> str:
+    return re.sub(r"^#{1,6}\s*", "", block).strip().lower()
+
+
 def is_translation_heading(block: str) -> bool:
-    plain = re.sub(r"^#{1,6}\s*", "", block).strip().lower()
-    return plain in {"translation", "译文", "中文译文", "chinese translation"}
+    return _heading_plain(block) in _TRANSLATION_HEADINGS
+
+
+def is_source_heading(block: str) -> bool:
+    return _heading_plain(block) in _SOURCE_HEADINGS
+
+
+def is_junk_block(block: str) -> bool:
+    """True for chrome/noise that must not become bilingual sentences."""
+    plain = re.sub(r"^#{1,6}\s*", "", block).strip()
+    if not plain:
+        return True
+    if is_source_heading(block) or is_translation_heading(block):
+        return False
+    if _HR_ONLY.match(plain):
+        return True
+    if _PAGE_NUM.match(plain):
+        return True
+    if _URL_ONLY.match(plain):
+        return True
+    if _IMAGE_ONLY.match(plain):
+        return True
+    if len(plain) <= 2 and not re.search(r"[A-Za-z一-鿿]", plain):
+        return True
+    return False
+
+
+def sanitize_markdown(markdown: str) -> str:
+    """Drop junk blocks (page numbers, URL-only lines, etc.) before align."""
+    blocks = [b for b in split_blocks(markdown) if not is_junk_block(b)]
+    return "\n\n".join(blocks)
 
 
 def split_english_sentences(text: str) -> list[str]:

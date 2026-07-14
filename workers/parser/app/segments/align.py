@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from app.segments.segment import (
     cjk_ratio,
     is_heading,
+    is_junk_block,
+    is_source_heading,
     is_translation_heading,
+    sanitize_markdown,
     sentences_for_block,
     split_blocks,
 )
@@ -26,14 +30,20 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
     Produce unpaired segment dicts (no ids yet) from markdown.
     Prefer extracted ZH when layout heuristics match; otherwise empty targets.
     """
-    blocks = split_blocks(markdown)
+    # Accept either raw or pre-sanitized markdown.
+    blocks = [b for b in split_blocks(sanitize_markdown(markdown)) if not is_junk_block(b)]
     if not blocks:
         return []
+
+    # Strategy 0: explicit ## Source ... ## Translation sections
+    sectioned = _pair_source_translation_sections(blocks)
+    if sectioned is not None:
+        return sectioned
 
     # Strategy 1: explicit Translation section
     for i, block in enumerate(blocks):
         if is_translation_heading(block):
-            en_blocks = blocks[:i]
+            en_blocks = [b for b in blocks[:i] if not is_source_heading(b)]
             zh_blocks = blocks[i + 1 :]
             return _pair_streams(en_blocks, zh_blocks)
 
@@ -70,7 +80,7 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
             zh_stream = []
 
     for block in blocks:
-        if is_translation_heading(block):
+        if is_translation_heading(block) or is_source_heading(block):
             continue
         # English (or non-CJK) headings start a new structural unit
         if is_heading(block) and not _is_zh_text(block):
@@ -100,12 +110,43 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
     # If everything was pure EN, we already flushed as empty targets
     if not paired:
         for block in blocks:
-            if _is_zh_text(block):
+            if _is_zh_text(block) or is_source_heading(block) or is_translation_heading(block):
                 continue
             for s in sentences_for_block(block):
                 paired.append(_empty_segment(s, "", "generated"))
 
     return _with_ids(paired)
+
+
+def _pair_source_translation_sections(blocks: list[str]) -> list[dict[str, Any]] | None:
+    """
+    Prefer structured vision output:
+      ## Source
+      ...
+      ## Translation
+      ...
+    Returns paired segments, or None if structure not present.
+    """
+    source_idx: int | None = None
+    translation_idx: int | None = None
+    for i, block in enumerate(blocks):
+        if is_source_heading(block) and source_idx is None:
+            source_idx = i
+        elif is_translation_heading(block) and translation_idx is None:
+            translation_idx = i
+
+    if translation_idx is None:
+        return None
+
+    if source_idx is not None and source_idx < translation_idx:
+        en_blocks = blocks[source_idx + 1 : translation_idx]
+        zh_blocks = blocks[translation_idx + 1 :]
+        return _pair_streams(en_blocks, zh_blocks)
+
+    # Translation heading only (legacy free-form with ## Translation)
+    en_blocks = [b for b in blocks[:translation_idx] if not is_source_heading(b)]
+    zh_blocks = blocks[translation_idx + 1 :]
+    return _pair_streams(en_blocks, zh_blocks)
 
 
 def _find_en_zh_split(blocks: list[str]) -> int | None:
@@ -157,14 +198,14 @@ def _pair_streams(en_blocks: list[str], zh_blocks: list[str]) -> list[dict[str, 
     en_sents: list[str] = []
     zh_sents: list[str] = []
     for b in en_blocks:
-        if is_translation_heading(b):
+        if is_translation_heading(b) or is_source_heading(b) or is_junk_block(b):
             continue
         # Leading Chinese title often sits above the English half — not a source.
         if _is_zh_text(b):
             continue
         en_sents.extend(sentences_for_block(b))
     for b in zh_blocks:
-        if is_translation_heading(b):
+        if is_translation_heading(b) or is_source_heading(b) or is_junk_block(b):
             continue
         zh_sents.extend(sentences_for_block(b))
     return _with_ids(_zip_sentence_lists(en_sents, zh_sents))
@@ -223,38 +264,76 @@ def _looks_like_title_line(text: str) -> bool:
     return True
 
 
+def _length_score(en: str, zh: str) -> float:
+    """Lower is better: log-length distance between EN and ZH strings."""
+    return abs(math.log(len(zh) + 1) - math.log(len(en) + 1))
+
+
+def _zip_by_length(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
+    """
+    Greedy length-aware zip with limited ZH skip budget.
+    Skips extra short ZH titles/orphans that would shift later pairs.
+    """
+    out: list[dict[str, Any]] = []
+    zi = 0
+    skip_budget = max(1, abs(len(zh) - len(en)))
+
+    for src in en:
+        if zi >= len(zh):
+            out.append(_empty_segment(src, "", "generated"))
+            continue
+
+        # Optionally skip one (or more, within budget) ZH that fit poorly
+        while (
+            skip_budget > 0
+            and zi + 1 < len(zh)
+            and _length_score(src, zh[zi]) > _length_score(src, zh[zi + 1]) + 0.15
+        ):
+            # Prefer skipping title-like / very short orphans
+            candidate = zh[zi]
+            if _looks_like_title_line(candidate) or len(candidate) < max(8, len(src) // 6):
+                zi += 1
+                skip_budget -= 1
+            else:
+                # Also skip if current is clearly worse than next by a large margin
+                if _length_score(src, zh[zi]) > _length_score(src, zh[zi + 1]) + 0.45:
+                    zi += 1
+                    skip_budget -= 1
+                else:
+                    break
+
+        tgt = zh[zi] if zi < len(zh) else ""
+        if tgt:
+            zi += 1
+        origin: Origin = "extracted" if tgt else "generated"
+        out.append(_empty_segment(src, tgt, origin))
+
+    return out
+
+
 def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
     en, zh = _strip_extra_zh_headings(en, zh)
     # Final guard: never keep CJK-only strings as English sources
     en = [s for s in en if s and not _is_zh_text(s)]
     zh = [s for s in zh if s]
 
-    out: list[dict[str, Any]] = []
-    n = max(len(en), len(zh))
-    # Prefer 1:1 when counts close; otherwise sequential fill
-    if en and zh and abs(len(en) - len(zh)) <= max(1, len(en) // 5):
-        for i in range(n):
-            src = en[i] if i < len(en) else ""
-            tgt = zh[i] if i < len(zh) else ""
-            if not src and tgt:
-                # leftover ZH
-                if out and not out[-1]["target"]:
-                    out[-1]["target"] = tgt
-                    out[-1]["origin"] = "extracted"
-                continue
-            if not src:
-                continue
-            origin: Origin = "extracted" if tgt else "generated"
-            out.append(_empty_segment(src, tgt, origin))
-        return out
+    if not en:
+        return []
+    if not zh:
+        return [_empty_segment(s, "", "generated") for s in en]
+
+    # Prefer length-aware zip when counts are close; otherwise sequential fill
+    if abs(len(en) - len(zh)) <= max(1, len(en) // 5):
+        return _zip_by_length(en, zh)
 
     # Sequential: consume ZH for each EN
+    out: list[dict[str, Any]] = []
     zi = 0
     for src in en:
         tgt = zh[zi] if zi < len(zh) else ""
         if tgt:
             zi += 1
-        origin = "extracted" if tgt else "generated"
+        origin: Origin = "extracted" if tgt else "generated"
         out.append(_empty_segment(src, tgt, origin))
     return out
 

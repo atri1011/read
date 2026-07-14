@@ -30,6 +30,9 @@ describe("progressLabel", () => {
     expect(
       progressLabel({ stage: "translate", page: 4, total: 20 }),
     ).toBe("正在补译：4/20 句");
+    expect(
+      progressLabel({ stage: "realign", page: 3, total: 12 }),
+    ).toBe("正在核对原文与译文：3/12 句");
     expect(progressLabel(null)).toBe("准备中…");
   });
 });
