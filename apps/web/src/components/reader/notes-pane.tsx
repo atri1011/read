@@ -15,6 +15,8 @@ type NotesPaneProps = {
   activeId?: string | null;
   loading?: boolean;
   className?: string;
+  /** When true, always use drawer (e.g. immersive mode on desktop). */
+  forceDrawer?: boolean;
 };
 
 const TYPE_FILTERS = [
@@ -244,19 +246,22 @@ function NotesList({
 
 export function NotesPane(props: NotesPaneProps) {
   const [open, setOpen] = useState(false);
-  const { className = "", ...listProps } = props;
+  const { className = "", forceDrawer = false, ...listProps } = props;
+  const useDrawer = forceDrawer;
 
   return (
     <>
-      {/* Desktop side pane */}
-      <aside
-        className={`hidden w-full max-w-sm shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:flex ${className}`}
-      >
-        <NotesList {...listProps} />
-      </aside>
+      {/* Desktop side pane (hidden when forceDrawer / immersive) */}
+      {!useDrawer && (
+        <aside
+          className={`hidden w-full max-w-sm shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:flex ${className}`}
+        >
+          <NotesList {...listProps} />
+        </aside>
+      )}
 
-      {/* Mobile drawer */}
-      <div className="lg:hidden">
+      {/* Mobile drawer — or desktop drawer when immersive */}
+      <div className={useDrawer ? "" : "lg:hidden"}>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -268,14 +273,26 @@ export function NotesPane(props: NotesPaneProps) {
             : ""}
         </button>
         {open && (
-          <div className="fixed inset-0 z-40 flex flex-col justify-end">
+          <div
+            className={`fixed inset-0 z-40 flex ${
+              useDrawer
+                ? "flex-row justify-end"
+                : "flex-col justify-end"
+            }`}
+          >
             <button
               type="button"
               aria-label="关闭笔记"
               className="absolute inset-0 bg-black/40"
               onClick={() => setOpen(false)}
             />
-            <div className="relative z-10 flex max-h-[75vh] flex-col overflow-hidden rounded-t-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div
+              className={`relative z-10 flex flex-col overflow-hidden border bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
+                useDrawer
+                  ? "h-full w-full max-w-sm border-l border-zinc-200 shadow-xl"
+                  : "max-h-[75vh] rounded-t-2xl border-zinc-200"
+              }`}
+            >
               <div className="flex items-center justify-end border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
                 <button
                   type="button"

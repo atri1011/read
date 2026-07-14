@@ -8,6 +8,7 @@ type ArticlePaneProps = {
   bodyHtml: string;
   showToc?: boolean;
   fontSize?: number;
+  immersive?: boolean;
 };
 
 function Toc({ items }: { items: TocItem[] }) {
@@ -52,7 +53,7 @@ function Toc({ items }: { items: TocItem[] }) {
 
 export const ArticlePane = forwardRef<HTMLDivElement, ArticlePaneProps>(
   function ArticlePane(
-    { title, bodyHtml, showToc = true, fontSize = 17 },
+    { title, bodyHtml, showToc = true, fontSize = 17, immersive = false },
     ref,
   ) {
     const toc = useMemo(
@@ -62,15 +63,31 @@ export const ArticlePane = forwardRef<HTMLDivElement, ArticlePaneProps>(
 
     return (
       <article className="min-w-0 flex-1">
-        <header className="mb-8 border-b border-zinc-200 pb-6 dark:border-zinc-800">
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <header
+          className={
+            immersive
+              ? "reader-immersive-title mb-10 pb-2"
+              : "mb-8 border-b border-zinc-200 pb-6 dark:border-zinc-800"
+          }
+        >
+          <h1
+            className={
+              immersive
+                ? "text-3xl font-medium tracking-wide text-[color:var(--reader-fg)] sm:text-4xl"
+                : "text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+            }
+          >
             {title}
           </h1>
         </header>
         <Toc items={toc} />
         <div
           ref={ref}
-          className="reader-prose max-w-none leading-8 text-zinc-800 dark:text-zinc-100"
+          className={`reader-prose max-w-none ${
+            immersive
+              ? "reader-prose-immersive leading-[1.8] text-[color:var(--reader-fg)]"
+              : "leading-8 text-zinc-800 dark:text-zinc-100"
+          }`}
           style={{ fontSize: `${fontSize}px` }}
           dangerouslySetInnerHTML={{ __html: bodyHtml }}
         />

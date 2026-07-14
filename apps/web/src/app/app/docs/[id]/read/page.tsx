@@ -48,44 +48,47 @@ export default async function ReadPage({ params }: PageProps) {
 
   const owner = isOwner(doc, user);
 
-  return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="flex min-w-0 items-center gap-3 text-sm">
-          <Link
-            href="/app/shelf"
-            className="shrink-0 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
-          >
-            书架
-          </Link>
-          <span className="text-zinc-300 dark:text-zinc-700">/</span>
-          <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">
-            {doc.title}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {owner && (
-            <>
-              <Link
-                href={`/app/docs/${doc.id}/review`}
-                className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
-              >
-                编辑
-              </Link>
-              <ShelfVisibilityToggle
-                documentId={doc.id}
-                initialVisibility={doc.shelfVisibility}
-              />
-            </>
-          )}
-        </div>
+  const docBar = (
+    <div className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+      <div className="flex min-w-0 items-center gap-3 text-sm">
+        <Link
+          href="/app/shelf"
+          className="shrink-0 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+        >
+          书架
+        </Link>
+        <span className="text-zinc-300 dark:text-zinc-700">/</span>
+        <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">
+          {doc.title}
+        </span>
       </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {owner && (
+          <>
+            <Link
+              href={`/app/docs/${doc.id}/review`}
+              className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+            >
+              编辑
+            </Link>
+            <ShelfVisibilityToggle
+              documentId={doc.id}
+              initialVisibility={doc.shelfVisibility}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
 
+  return (
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-1 flex-col">
       <ReaderShell
         documentId={doc.id}
         title={doc.title}
         bodyHtml={revision.bodyHtml}
         currentUserId={user.id}
+        docBar={docBar}
       />
     </div>
   );

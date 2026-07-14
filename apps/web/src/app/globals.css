@@ -240,4 +240,106 @@ body {
   outline-color: rgb(212 212 216);
 }
 
+/* ── Immersive reader (novel-like focus mode) ── */
+
+:root {
+  --reader-bg: #f7f3ea;
+  --reader-fg: #2c2416;
+  --reader-muted: #6b5e4e;
+  --reader-surface: #fffdf8;
+}
+
+.dark {
+  --reader-bg: #141210;
+  --reader-fg: #e8e0d4;
+  --reader-muted: #a39889;
+  --reader-surface: #1c1916;
+}
+
+html.immersive-reading .app-shell-header {
+  display: none;
+}
+
+html.immersive-reading .reader-page-root {
+  min-height: 100vh;
+}
+
+.reader-immersive {
+  background: var(--reader-bg);
+  color: var(--reader-fg);
+}
+
+.reader-immersive-scroll {
+  background: var(--reader-bg);
+}
+
+.reader-immersive-title {
+  border-bottom: 1px solid color-mix(in srgb, var(--reader-muted) 25%, transparent);
+}
+
+.reader-prose-immersive {
+  font-family:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    Palatino,
+    "Book Antiqua",
+    Georgia,
+    "Times New Roman",
+    serif;
+  letter-spacing: 0.01em;
+}
+
+.reader-prose-immersive a {
+  color: color-mix(in srgb, #1d4ed8 80%, var(--reader-fg));
+}
+
+.dark .reader-prose-immersive a {
+  color: color-mix(in srgb, #93c5fd 75%, var(--reader-fg));
+}
+
+.reader-prose-immersive blockquote {
+  border-left-color: color-mix(in srgb, var(--reader-muted) 45%, transparent);
+  color: var(--reader-muted);
+}
+
+.reader-prose-immersive pre,
+.reader-prose-immersive :not(pre) > code {
+  background: color-mix(in srgb, var(--reader-fg) 6%, var(--reader-bg));
+}
+
+/* Softer marks on paper */
+.reader-immersive .ann-type-highlight.ann-color-yellow,
+.reader-immersive .ann-type-note.ann-color-yellow {
+  background-color: rgb(253 224 71 / 0.32);
+}
+.reader-immersive .ann-type-highlight.ann-color-green,
+.reader-immersive .ann-type-note.ann-color-green {
+  background-color: rgb(134 239 172 / 0.32);
+}
+.reader-immersive .ann-type-highlight.ann-color-blue,
+.reader-immersive .ann-type-note.ann-color-blue {
+  background-color: rgb(147 197 253 / 0.35);
+}
+.reader-immersive .ann-type-highlight.ann-color-pink,
+.reader-immersive .ann-type-note.ann-color-pink {
+  background-color: rgb(249 168 212 / 0.32);
+}
+
+.dark .reader-immersive .ann-type-highlight.ann-color-yellow,
+.dark .reader-immersive .ann-type-note.ann-color-yellow {
+  background-color: rgb(161 98 7 / 0.35);
+}
+.dark .reader-immersive .ann-type-highlight.ann-color-green,
+.dark .reader-immersive .ann-type-note.ann-color-green {
+  background-color: rgb(21 128 61 / 0.32);
+}
+.dark .reader-immersive .ann-type-highlight.ann-color-blue,
+.dark .reader-immersive .ann-type-note.ann-color-blue {
+  background-color: rgb(29 78 216 / 0.32);
+}
+.dark .reader-immersive .ann-type-highlight.ann-color-pink,
+.dark .reader-immersive .ann-type-note.ann-color-pink {
+  background-color: rgb(157 23 77 / 0.32);
+}
+
 
