@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o"
     llm_timeout_seconds: int = 120
     queue_name: str = "parse_jobs"
-    concurrency: int = 1
+    # Parallel parse jobs in one worker process (PDF vision is heavy; 2 is a safe default).
+    concurrency: int = 2
 
 
 settings = Settings()

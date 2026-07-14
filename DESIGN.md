@@ -200,7 +200,7 @@ Adapter interface: `complete_vision(messages) -> str` so providers stay swappabl
 ### Engineering limits (not product quotas)
 
 - Request timeouts, max retries with backoff  
-- Global worker concurrency (e.g. 1–2 PDF jobs) so VPS remains responsive  
+- Global worker concurrency via `CONCURRENCY` (default 2 PDF/text jobs in one worker process) so VPS remains responsive  
 - Reasonable max upload size (e.g. 50MB) to avoid disk/memory blowups — operational safety, not billing  
 
 ## 9. Dictionary

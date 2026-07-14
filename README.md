@@ -30,6 +30,8 @@ App: [http://localhost:3000](http://localhost:3000)
 
 Services: `web` (Next.js), `worker` (Python PDF/text parser), `db` (Postgres 16), `redis` (queue + dict cache).
 
+Worker can parse multiple uploaded documents in parallel. Set `CONCURRENCY` in `.env` (default `2`; raise carefully on small VPS because PDF vision is memory-heavy).
+
 ### Local web-only development
 
 If Postgres/Redis already run via Compose:
