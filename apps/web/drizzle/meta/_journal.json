@@ -8,6 +8,13 @@
       "when": 1783928648255,
       "tag": "0000_gray_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784042000000,
+      "tag": "0001_bilingual_segments",
+      "breakpoints": true
     }
   ]
 }

@@ -42,6 +42,8 @@ export const documents = pgTable(
     sourceFilename: text("source_filename"),
     sourcePath: text("source_path"),
     draftMarkdown: text("draft_markdown"),
+    /** Bilingual sentence pairs draft; null = legacy markdown-only path. */
+    draftSegments: jsonb("draft_segments"),
     errorMessage: text("error_message"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -63,6 +65,8 @@ export const documentRevisions = pgTable(
     version: integer("version").notNull(),
     markdown: text("markdown").notNull(),
     bodyHtml: text("body_html").notNull(),
+    /** Snapshot of bilingual segments at publish time; null = legacy. */
+    segments: jsonb("segments"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [uniqueIndex("doc_rev_unique").on(t.documentId, t.version)],

@@ -2,11 +2,17 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { SegmentEditor } from "@/components/review/segment-editor";
+import type {
+  BilingualSegment,
+  DraftSegmentsPayload,
+} from "@/lib/segments/types";
 
 type MarkdownEditorProps = {
   documentId: string;
   initialTitle: string;
   initialMarkdown: string;
+  initialSegments?: DraftSegmentsPayload | null;
   status: string;
   errorMessage?: string | null;
 };
@@ -41,23 +47,53 @@ function progressLabel(progress: JobProgress | null): string {
     return "视觉模型识别中…";
   }
   if (stage === "importing_text") return "正在导入文本…";
+  if (stage === "segment") return "正在切句并对齐译文…";
+  if (stage === "translate") {
+    if (total > 0) {
+      return `正在补译：${page}/${total}`;
+    }
+    return "正在生成中文译文…";
+  }
   if (stage === "done") return "处理完成";
   if (stage === "queued") return "已排队，等待 worker…";
   return `处理中（${stage}）`;
+}
+
+function segmentsEqual(
+  a: BilingualSegment[],
+  b: BilingualSegment[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (s, i) =>
+      s.id === b[i]?.id &&
+      s.source === b[i]?.source &&
+      s.target === b[i]?.target &&
+      s.origin === b[i]?.origin,
+  );
 }
 
 export function MarkdownEditor({
   documentId,
   initialTitle,
   initialMarkdown,
+  initialSegments = null,
   status: initialStatus,
   errorMessage: initialErrorMessage,
 }: MarkdownEditorProps) {
   const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
   const [markdown, setMarkdown] = useState(initialMarkdown);
+  const [segments, setSegments] = useState<BilingualSegment[]>(
+    initialSegments?.segments ?? [],
+  );
+  const [useSegments, setUseSegments] = useState(
+    (initialSegments?.segments?.length ?? 0) > 0,
+  );
   const [status, setStatus] = useState(initialStatus);
-  const [docError, setDocError] = useState<string | null>(initialErrorMessage ?? null);
+  const [docError, setDocError] = useState<string | null>(
+    initialErrorMessage ?? null,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -66,10 +102,22 @@ export function MarkdownEditor({
   const [retrying, setRetrying] = useState(false);
 
   const canEdit = status === "review" || status === "published";
-  const dirty = useMemo(
-    () => title !== initialTitle || markdown !== initialMarkdown,
-    [title, markdown, initialTitle, initialMarkdown],
-  );
+  const initialSegList = initialSegments?.segments ?? [];
+  const dirty = useMemo(() => {
+    if (title !== initialTitle) return true;
+    if (useSegments) {
+      return !segmentsEqual(segments, initialSegList);
+    }
+    return markdown !== initialMarkdown;
+  }, [
+    title,
+    markdown,
+    segments,
+    useSegments,
+    initialTitle,
+    initialMarkdown,
+    initialSegList,
+  ]);
 
   const percent = useMemo(() => {
     const page = progress?.page ?? 0;
@@ -80,8 +128,28 @@ export function MarkdownEditor({
 
   useEffect(() => {
     let cancelled = false;
-    // lightweight client-side preview: escape + simple paragraphs for offline feel
-    // Real sanitized HTML is produced on publish; this is editor convenience only.
+    if (useSegments && segments.length > 0) {
+      const html = segments
+        .map((s) => {
+          const src = s.source
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+          const tgt = s.target
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+          return `<div class="mb-3"><p>${src}</p>${
+            tgt ? `<p class="text-zinc-500">${tgt}</p>` : ""
+          }</div>`;
+        })
+        .join("");
+      if (!cancelled) setPreviewHtml(html);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const escaped = markdown
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -106,7 +174,7 @@ export function MarkdownEditor({
     return () => {
       cancelled = true;
     };
-  }, [markdown]);
+  }, [markdown, segments, useSegments]);
 
   // poll document + job progress while processing / uploaded
   useEffect(() => {
@@ -118,7 +186,9 @@ export function MarkdownEditor({
       try {
         const [docRes, jobRes] = await Promise.all([
           fetch(`/api/documents/${documentId}`, { cache: "no-store" }),
-          fetch(`/api/documents/${documentId}/jobs/latest`, { cache: "no-store" }),
+          fetch(`/api/documents/${documentId}/jobs/latest`, {
+            cache: "no-store",
+          }),
         ]);
 
         if (!cancelled && jobRes.ok) {
@@ -137,6 +207,7 @@ export function MarkdownEditor({
             document?: {
               status: string;
               draftMarkdown: string | null;
+              draftSegments?: DraftSegmentsPayload | null;
               title: string;
               errorMessage?: string | null;
             };
@@ -145,6 +216,10 @@ export function MarkdownEditor({
           setStatus(data.document.status);
           if (data.document.draftMarkdown != null) {
             setMarkdown(data.document.draftMarkdown);
+          }
+          if (data.document.draftSegments?.segments) {
+            setSegments(data.document.draftSegments.segments);
+            setUseSegments(data.document.draftSegments.segments.length > 0);
           }
           if (data.document.title) setTitle(data.document.title);
           if (data.document.errorMessage !== undefined) {
@@ -177,10 +252,18 @@ export function MarkdownEditor({
     setError(null);
     setMessage(null);
     startTransition(async () => {
+      const body =
+        useSegments && segments.length > 0
+          ? {
+              title,
+              draftSegments: { version: 1 as const, segments },
+            }
+          : { title, draftMarkdown: markdown };
+
       const res = await fetch(`/api/documents/${documentId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, draftMarkdown: markdown }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -196,11 +279,18 @@ export function MarkdownEditor({
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      if (dirty || title !== initialTitle || markdown !== initialMarkdown) {
+      if (dirty) {
+        const body =
+          useSegments && segments.length > 0
+            ? {
+                title,
+                draftSegments: { version: 1 as const, segments },
+              }
+            : { title, draftMarkdown: markdown };
         const saveRes = await fetch(`/api/documents/${documentId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, draftMarkdown: markdown }),
+          body: JSON.stringify(body),
         });
         if (!saveRes.ok) {
           const data = (await saveRes.json().catch(() => ({}))) as {
@@ -262,7 +352,7 @@ export function MarkdownEditor({
           <div className="mx-auto mt-5 max-w-md">
             <div className="mb-1 flex justify-between text-xs text-zinc-500">
               <span>
-                {progress?.page ?? 0}/{progress?.total ?? 0} 页
+                {progress?.page ?? 0}/{progress?.total ?? 0}
               </span>
               <span>{percent}%</span>
             </div>
@@ -294,7 +384,10 @@ export function MarkdownEditor({
           </p>
         )}
         {message && (
-          <p className="mt-3 text-sm text-emerald-800 dark:text-emerald-200" role="status">
+          <p
+            className="mt-3 text-sm text-emerald-800 dark:text-emerald-200"
+            role="status"
+          >
             {message}
           </p>
         )}
@@ -355,19 +448,56 @@ export function MarkdownEditor({
         </p>
       )}
 
+      {segments.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setUseSegments(true)}
+            className={
+              useSegments
+                ? "rounded-full bg-zinc-900 px-3 py-1 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300"
+            }
+          >
+            句对编辑
+          </button>
+          <button
+            type="button"
+            onClick={() => setUseSegments(false)}
+            className={
+              !useSegments
+                ? "rounded-full bg-zinc-900 px-3 py-1 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "rounded-full border border-zinc-300 px-3 py-1 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300"
+            }
+          >
+            原始 Markdown
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <label className="flex min-h-[28rem] flex-col">
+        <div className="flex min-h-[28rem] flex-col">
           <span className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Markdown
+            {useSegments && segments.length > 0 ? "双语句对" : "Markdown"}
           </span>
-          <textarea
-            value={markdown}
-            onChange={(e) => setMarkdown(e.target.value)}
-            disabled={!canEdit || pending}
-            className="min-h-[28rem] flex-1 resize-y rounded-xl border border-zinc-200 bg-white p-4 font-mono text-sm leading-relaxed text-zinc-900 outline-none ring-zinc-400 focus:ring-2 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-            spellCheck={false}
-          />
-        </label>
+          {useSegments && segments.length > 0 ? (
+            <div className="min-h-[28rem] flex-1 overflow-auto">
+              <SegmentEditor
+                segments={segments}
+                disabled={!canEdit || pending}
+                onChange={setSegments}
+              />
+            </div>
+          ) : (
+            <textarea
+              value={markdown}
+              onChange={(e) => setMarkdown(e.target.value)}
+              disabled={!canEdit || pending}
+              className="min-h-[28rem] flex-1 resize-y rounded-xl border border-zinc-200 bg-white p-4 font-mono text-sm leading-relaxed text-zinc-900 outline-none ring-zinc-400 focus:ring-2 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              spellCheck={false}
+            />
+          )}
+        </div>
         <div className="flex min-h-[28rem] flex-col">
           <span className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
             预览（简化）

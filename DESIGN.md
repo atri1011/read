@@ -8,8 +8,8 @@
 A small-circle **English article reading site** for a VPS shared with classmates.
 
 **Primary value:** elegant reading layout + standard annotations (highlights, notes, export).  
-**Secondary value:** light bilingual word lookup.  
-**Signature pipeline:** upload PDF → vision LLM (OpenAI-compatible) → Markdown review → publish to personal shelf (optional public shelf).
+**Secondary value:** light bilingual word lookup + **sentence-pair bilingual reading** (EN source + masked ZH).  
+**Signature pipeline:** upload PDF → vision LLM (OpenAI-compatible) → segment/align/translate → pair review → publish to personal shelf (optional public shelf).
 
 Not a vocabulary SRS product, not a real-time collaborative editor.
 
@@ -21,8 +21,8 @@ Not a vocabulary SRS product, not a real-time collaborative editor.
 - Personal bookshelf; optional publish to instance-wide public shelf
 - Upload **TXT / MD / PDF** (single file)
 - TXT/MD → Markdown review; PDF → **vision LLM only** (no OCR)
-- Review in Markdown editor + preview, then publish
-- Reader: dual-pane (article + notes), responsive drawer on small screens
+- Review: sentence-pair editor when segments exist (Markdown fallback otherwise), then publish
+- Reader: immersive paper UI; bilingual pairs with blur-masked translation (hover/pin); notes drawer
 - Annotations: multi-color highlight, underline, strikethrough, note text; filter in side panel; export own notes as Markdown
 - Annotation visibility: default private; optional public; reader defaults to **own only**, toggle to show others’ public notes
 - Bilingual popup dictionary (EN↔ZH + EN definition) on selection; “add to note”
@@ -32,7 +32,7 @@ Not a vocabulary SRS product, not a real-time collaborative editor.
 
 - OCR fallback
 - Epub / Docx / URL clipper / batch upload
-- Wordbook, SRS, sentence translation wall
+- Wordbook, SRS (sentence pairs are for reading study, not flashcards)
 - Full-text or semantic search
 - Annotation replies, likes, live cursors, OT/CRDT
 - Handwriting or PDF pixel-coordinate annotations
@@ -54,7 +54,8 @@ Open registration (email + password). If the instance is abused later, add invit
 |---------|---------|
 | **User** | Account; owns documents and annotations |
 | **Document** | One uploaded work through processing → review → published readable form |
-| **Revision** | Published body snapshot used for reading/annotation anchors (`body_html` / source MD) |
+| **Revision** | Published body snapshot used for reading/annotation anchors (`body_html` / source MD; optional bilingual `segments`) |
+| **Segment** | One bilingual unit `{id, source, target, origin}` used for review + interlinear reader |
 | **Shelf visibility** | `private` (only owner) or `public` (all logged-in users) |
 | **Annotation** | Anchored mark on a revision; `private` or `public` |
 | **Parse job** | Async worker unit (especially PDF vision pipeline) |

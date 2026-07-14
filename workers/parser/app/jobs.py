@@ -9,6 +9,7 @@ from typing import Any
 from app import db
 from app.logging_util import log_json
 from app.pdf_render import render_pdf_pages
+from app.segments.pipeline import build_and_translate
 from app.settings import settings
 from app.text_import import load_text_file, to_markdown
 from app.vision_llm import VisionLLMError, page_to_markdown
@@ -144,6 +145,38 @@ def _process_pdf(conn: Any, job_id: str, document_id: str, source: Path) -> tupl
         shutil.rmtree(out_dir, ignore_errors=True)
 
 
+def _bilingual_payload(
+    conn: Any,
+    job_id: str,
+    document_id: str,
+    md: str,
+) -> dict[str, Any] | None:
+    """Build draft_segments payload; never raise — fail-soft to null."""
+    try:
+        def on_progress(progress: dict[str, Any]) -> None:
+            db.set_job_progress(conn, job_id, progress)
+            log_json(
+                event="job_progress",
+                job_id=job_id,
+                document_id=document_id,
+                **progress,
+            )
+
+        segments = build_and_translate(md, on_progress=on_progress)
+        if not segments:
+            return None
+        return {"version": 1, "segments": segments}
+    except Exception as exc:  # noqa: BLE001 — bilingual is best-effort
+        log_json(
+            event="job_warning",
+            job_id=job_id,
+            document_id=document_id,
+            stage="bilingual",
+            error=str(exc),
+        )
+        return None
+
+
 def process_job(job_id: str) -> None:
     with db.connect() as conn:
         row = db.get_job_with_document(conn, job_id)
@@ -173,7 +206,8 @@ def process_job(job_id: str) -> None:
 
             if lower.endswith(".pdf") or mime == "application/pdf":
                 md, total = _process_pdf(conn, job_id, document_id, path)
-                db.set_document_review(conn, document_id, md)
+                payload = _bilingual_payload(conn, job_id, document_id, md)
+                db.set_document_review(conn, document_id, md, draft_segments=payload)
                 db.set_job_progress(
                     conn,
                     job_id,
@@ -187,6 +221,7 @@ def process_job(job_id: str) -> None:
                     stage="done",
                     kind="pdf",
                     pages=total,
+                    segments=len(payload["segments"]) if payload else 0,
                 )
                 return
 
@@ -205,7 +240,9 @@ def process_job(job_id: str) -> None:
             )
             text = load_text_file(path)
             md = to_markdown(text, filename)
-            db.set_document_review(conn, document_id, md)
+            payload = _bilingual_payload(conn, job_id, document_id, md)
+            db.set_document_review(conn, document_id, md, draft_segments=payload)
+            db.set_job_progress(conn, job_id, {"stage": "done", "page": 0, "total": 0})
             db.mark_job_succeeded(conn, job_id)
             log_json(
                 event="job_success",
@@ -213,6 +250,7 @@ def process_job(job_id: str) -> None:
                 document_id=document_id,
                 stage="done",
                 kind="text",
+                segments=len(payload["segments"]) if payload else 0,
             )
 
         except JobError as exc:

@@ -9,7 +9,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArticlePane } from "@/components/reader/article-pane";
+import {
+  ArticlePane,
+  type BilingualMode,
+} from "@/components/reader/article-pane";
 import { AnnotationLayer, scrollToAnnotation } from "@/components/reader/annotation-layer";
 import { DictPopup } from "@/components/reader/dict-popup";
 import { NotesPane } from "@/components/reader/notes-pane";
@@ -39,6 +42,7 @@ type Props = {
 type ReaderPrefs = {
   fontSize: number;
   measure: "narrow" | "normal" | "wide";
+  bilingualMode: BilingualMode;
 };
 
 const FONT_STEPS = [15, 17, 19, 21, 23] as const;
@@ -51,6 +55,7 @@ const MEASURE_CLASS: Record<ReaderPrefs["measure"], string> = {
 const DEFAULT_PREFS: ReaderPrefs = {
   fontSize: 17,
   measure: "normal",
+  bilingualMode: "bilingual",
 };
 
 function loadPrefs(): ReaderPrefs {
@@ -68,7 +73,9 @@ function loadPrefs(): ReaderPrefs {
       parsed.measure === "wide"
         ? parsed.measure
         : DEFAULT_PREFS.measure;
-    return { fontSize, measure };
+    const bilingualMode: BilingualMode =
+      parsed.bilingualMode === "source" ? "source" : "bilingual";
+    return { fontSize, measure, bilingualMode };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -140,6 +147,42 @@ function FontMeasureControls({
           {m.label}
         </button>
       ))}
+    </>
+  );
+}
+
+function BilingualModeControls({
+  prefs,
+  updatePrefs,
+  enabled,
+}: {
+  prefs: ReaderPrefs;
+  updatePrefs: (patch: Partial<ReaderPrefs>) => void;
+  enabled: boolean;
+}) {
+  if (!enabled) return null;
+  const active =
+    "rounded bg-zinc-800 px-2 py-0.5 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900";
+  const idle =
+    "rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-600 hover:bg-black/5 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-white/10";
+
+  return (
+    <>
+      <span className="ml-2 text-zinc-500">阅读</span>
+      <button
+        type="button"
+        className={prefs.bilingualMode === "bilingual" ? active : idle}
+        onClick={() => updatePrefs({ bilingualMode: "bilingual" })}
+      >
+        对照
+      </button>
+      <button
+        type="button"
+        className={prefs.bilingualMode === "source" ? active : idle}
+        onClick={() => updatePrefs({ bilingualMode: "source" })}
+      >
+        原文
+      </button>
     </>
   );
 }
@@ -342,6 +385,10 @@ export function ReaderShell({
 
   const measureClass = MEASURE_CLASS[prefs.measure];
   const tocItems = useMemo(() => extractTocFromHtml(bodyHtml), [bodyHtml]);
+  const hasBilingual = useMemo(
+    () => bodyHtml.includes("bilingual-pair"),
+    [bodyHtml],
+  );
 
   return (
     <div className="reader-page-root reader-immersive flex min-h-0 flex-1 flex-col">
@@ -370,6 +417,11 @@ export function ReaderShell({
         {hotZoneOpen && (
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 rounded-b-xl border border-zinc-200/80 border-t-0 bg-[color:var(--reader-surface)]/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-zinc-700/80">
             <FontMeasureControls prefs={prefs} updatePrefs={updatePrefs} />
+            <BilingualModeControls
+              prefs={prefs}
+              updatePrefs={updatePrefs}
+              enabled={hasBilingual}
+            />
             <ReaderTocMenu
               items={tocItems}
               open={tocOpen}
@@ -399,6 +451,7 @@ export function ReaderShell({
               title={title}
               bodyHtml={bodyHtml}
               fontSize={prefs.fontSize}
+              bilingualMode={prefs.bilingualMode}
             />
             <AnnotationLayer
               rootRef={articleRef}

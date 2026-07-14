@@ -11,8 +11,18 @@ import {
   isOwner,
 } from "@/lib/documents/access";
 import { markdownToHtml } from "@/lib/md/render";
+import { segmentsToHtml } from "@/lib/segments/html";
+import { segmentsToMarkdown } from "@/lib/segments/markdown";
+import {
+  isDraftSegmentsPayload,
+  type DraftSegmentsPayload,
+} from "@/lib/segments/types";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function asDraftSegments(value: unknown): DraftSegmentsPayload | null {
+  return isDraftSegmentsPayload(value) ? value : null;
+}
 
 export async function POST(_request: Request, context: RouteContext) {
   const user = await getCurrentUser();
@@ -36,15 +46,34 @@ export async function POST(_request: Request, context: RouteContext) {
     );
   }
 
-  const draft = doc.draftMarkdown;
-  if (draft == null || draft.trim() === "") {
+  const segmentsPayload = asDraftSegments(doc.draftSegments);
+  const hasSegments =
+    !!segmentsPayload && segmentsPayload.segments.some((s) => s.source.trim());
+
+  let markdown: string;
+  let bodyHtml: string;
+  let revisionSegments: DraftSegmentsPayload | null = null;
+
+  if (hasSegments && segmentsPayload) {
+    revisionSegments = segmentsPayload;
+    markdown = segmentsToMarkdown(segmentsPayload.segments);
+    bodyHtml = segmentsToHtml(segmentsPayload.segments);
+  } else {
+    const draft = doc.draftMarkdown;
+    if (draft == null || draft.trim() === "") {
+      return NextResponse.json({ error: "草稿为空，无法发布" }, { status: 400 });
+    }
+    markdown = draft;
+    bodyHtml = await markdownToHtml(draft);
+  }
+
+  if (!markdown.trim() || !bodyHtml.trim()) {
     return NextResponse.json({ error: "草稿为空，无法发布" }, { status: 400 });
   }
 
   // Capture previous latest revision before creating a new one (re-publish path)
   const previousRevision = await getLatestRevision(doc.id);
 
-  const bodyHtml = await markdownToHtml(draft);
   const version = await getNextRevisionVersion(doc.id);
   const now = new Date();
 
@@ -53,8 +82,9 @@ export async function POST(_request: Request, context: RouteContext) {
     .values({
       documentId: doc.id,
       version,
-      markdown: draft,
+      markdown,
       bodyHtml,
+      segments: revisionSegments,
     })
     .returning({
       id: documentRevisions.id,
@@ -62,8 +92,15 @@ export async function POST(_request: Request, context: RouteContext) {
       createdAt: documentRevisions.createdAt,
     });
 
+  // Keep draft_markdown in sync when publishing from segments
+  if (hasSegments) {
+    await db
+      .update(documents)
+      .set({ draftMarkdown: markdown, updatedAt: now })
+      .where(eq(documents.id, doc.id));
+  }
+
   // Re-bind annotations that pointed at the previous revision onto the new one.
-  // Keep anchors when exact quote still appears; otherwise mark orphaned.
   let reanchored = 0;
   let orphaned = 0;
   if (previousRevision && previousRevision.id !== revision.id) {
@@ -85,7 +122,7 @@ export async function POST(_request: Request, context: RouteContext) {
       const orphanIds: string[] = [];
 
       for (const row of rows) {
-        if (isAnchorResolvable(row.anchor, draft, bodyHtml)) {
+        if (isAnchorResolvable(row.anchor, markdown, bodyHtml)) {
           keepIds.push(row.id);
         } else {
           orphanIds.push(row.id);

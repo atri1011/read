@@ -137,6 +137,7 @@ def set_document_review(
     conn: psycopg.Connection,
     document_id: str | UUID,
     draft_markdown: str,
+    draft_segments: dict[str, Any] | list[Any] | None = None,
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -144,11 +145,17 @@ def set_document_review(
             UPDATE documents
             SET status = 'review',
                 draft_markdown = %s,
+                draft_segments = %s,
                 error_message = NULL,
                 updated_at = %s
             WHERE id = %s
             """,
-            (draft_markdown, _now(), document_id),
+            (
+                draft_markdown,
+                Json(draft_segments) if draft_segments is not None else None,
+                _now(),
+                document_id,
+            ),
         )
     conn.commit()
 

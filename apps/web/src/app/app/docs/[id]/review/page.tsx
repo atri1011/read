@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { MarkdownEditor } from "@/components/review/markdown-editor";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getDocumentById, isOwner } from "@/lib/documents/access";
+import { isDraftSegmentsPayload } from "@/lib/segments/types";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -58,6 +59,9 @@ export default async function ReviewPage({ params }: PageProps) {
         documentId={doc.id}
         initialTitle={doc.title}
         initialMarkdown={doc.draftMarkdown ?? ""}
+        initialSegments={
+          isDraftSegmentsPayload(doc.draftSegments) ? doc.draftSegments : null
+        }
         status={doc.status}
         errorMessage={doc.errorMessage}
       />

@@ -343,4 +343,49 @@ html.immersive-reading .reader-page-root {
   background-color: rgb(157 23 77 / 0.32);
 }
 
+/* ── Bilingual sentence pairs ── */
+
+.reader-prose .bilingual-pair {
+  margin-top: 0.95em;
+}
+
+.reader-prose .bilingual-pair + .bilingual-pair {
+  margin-top: 1.05em;
+}
+
+.reader-prose .bilingual-source {
+  margin: 0;
+}
+
+.reader-prose .bilingual-target {
+  margin: 0.35em 0 0;
+  color: var(--reader-muted, #6b5e4e);
+  font-size: 0.95em;
+  line-height: 1.7;
+  transition: filter 120ms ease, opacity 120ms ease;
+}
+
+.reader-prose .bilingual-target[data-masked="true"] {
+  filter: blur(5px);
+  opacity: 0.8;
+  user-select: none;
+  cursor: pointer;
+}
+
+.reader-prose .bilingual-target[data-masked="true"]:hover,
+.reader-prose .bilingual-target[data-pinned="true"] {
+  filter: none;
+  opacity: 1;
+  user-select: text;
+}
+
+.reader-prose[data-bilingual-mode="source"] .bilingual-target {
+  display: none;
+}
+
+/* Override prose sibling spacing inside pairs */
+.reader-prose .bilingual-pair > * + * {
+  margin-top: 0.35em;
+}
+
 

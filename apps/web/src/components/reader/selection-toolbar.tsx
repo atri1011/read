@@ -101,6 +101,17 @@ export function SelectionToolbar({
         return;
       }
 
+      // Bilingual reader: do not annotate translation lines
+      const node = range.commonAncestorContainer;
+      const el =
+        node.nodeType === Node.ELEMENT_NODE
+          ? (node as Element)
+          : node.parentElement;
+      if (el?.closest(".bilingual-target")) {
+        hide();
+        return;
+      }
+
       const built = buildAnchorFromSelection(sel, root);
       if (!built) {
         hide();
