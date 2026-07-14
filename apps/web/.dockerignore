@@ -1,0 +1,18 @@
+# Keep the build context clean — host artifacts cause EPERM / stale builds
+node_modules
+.next
+out
+dist
+coverage
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+Dockerfile*
+docker-compose*
+.DS_Store
+npm-debug.log*
+.vscode
+.idea
