@@ -6,8 +6,11 @@ import {
   type ShelfDocument,
 } from "@/components/shelf/document-list";
 import { UploadDropzone } from "@/components/shelf/upload-dropzone";
+import { isActiveParseStatus } from "@/lib/documents/job-progress";
 
 type Scope = "mine" | "public";
+
+const POLL_MS = 2000;
 
 export function ShelfTabs() {
   const [scope, setScope] = useState<Scope>("mine");
@@ -16,9 +19,12 @@ export function ShelfTabs() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const load = useCallback(async (nextScope: Scope) => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (nextScope: Scope, opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await fetch(`/api/documents?scope=${nextScope}`, {
         cache: "no-store",
@@ -28,22 +34,40 @@ export function ShelfTabs() {
         error?: string;
       };
       if (!res.ok) {
-        setError(data.error ?? "加载失败");
-        setDocuments([]);
+        if (!silent) {
+          setError(data.error ?? "加载失败");
+          setDocuments([]);
+        }
         return;
       }
       setDocuments(data.documents ?? []);
+      if (!silent) setError(null);
     } catch {
-      setError("网络错误");
-      setDocuments([]);
+      if (!silent) {
+        setError("网络错误");
+        setDocuments([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load(scope);
   }, [scope, load]);
+
+  const hasActiveParse =
+    scope === "mine" &&
+    documents.some((d) => isActiveParseStatus(d.status));
+
+  // While any document is still parsing, silently refresh list + progress.
+  useEffect(() => {
+    if (!hasActiveParse) return;
+    const t = setInterval(() => {
+      void load("mine", { silent: true });
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [hasActiveParse, load]);
 
   const handleDelete = useCallback(async (doc: ShelfDocument) => {
     const ok = window.confirm(`确定删除《${doc.title}》？此操作不可恢复。`);
@@ -70,6 +94,10 @@ export function ShelfTabs() {
     }
   }, []);
 
+  const activeCount = documents.filter((d) =>
+    isActiveParseStatus(d.status),
+  ).length;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -79,6 +107,11 @@ export function ShelfTabs() {
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
             管理你的文章，或浏览实例内的公开阅读材料。
+            {scope === "mine" && activeCount > 0 && (
+              <span className="ml-1 text-amber-700 dark:text-amber-300">
+                · {activeCount} 篇处理中（自动刷新）
+              </span>
+            )}
           </p>
         </div>
         <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">

@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import path from "path";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { db } from "@/lib/db";
 import { documents, parseJobs } from "@/lib/db/schema";
+import {
+  isActiveParseStatus,
+  normalizeJobProgress,
+  type ShelfJobSummary,
+} from "@/lib/documents/job-progress";
 import { enqueueParseJob } from "@/lib/queue";
 import { saveUpload } from "@/lib/storage";
 
@@ -73,7 +78,40 @@ export async function GET(request: Request) {
       .where(eq(documents.ownerId, user.id))
       .orderBy(desc(documents.updatedAt));
 
-    return NextResponse.json({ documents: rows, scope });
+    const activeIds = rows
+      .filter((r) => isActiveParseStatus(r.status))
+      .map((r) => r.id);
+
+    const jobByDoc = new Map<string, ShelfJobSummary>();
+    if (activeIds.length > 0) {
+      const jobs = await db
+        .select({
+          documentId: parseJobs.documentId,
+          status: parseJobs.status,
+          progress: parseJobs.progress,
+          createdAt: parseJobs.createdAt,
+        })
+        .from(parseJobs)
+        .where(inArray(parseJobs.documentId, activeIds))
+        .orderBy(desc(parseJobs.createdAt));
+
+      for (const job of jobs) {
+        if (jobByDoc.has(job.documentId)) continue;
+        jobByDoc.set(job.documentId, {
+          status: job.status,
+          progress: normalizeJobProgress(job.progress),
+        });
+      }
+    }
+
+    const documentsWithJobs = rows.map((row) => ({
+      ...row,
+      job: isActiveParseStatus(row.status)
+        ? (jobByDoc.get(row.id) ?? null)
+        : null,
+    }));
+
+    return NextResponse.json({ documents: documentsWithJobs, scope });
   }
 
   const rows = await db
@@ -157,6 +195,7 @@ export async function POST(request: Request) {
         documentId: doc.id,
         status: "queued",
         attempts: 0,
+        progress: { stage: "queued", page: 0, total: 0 },
       })
       .returning({ id: parseJobs.id });
 

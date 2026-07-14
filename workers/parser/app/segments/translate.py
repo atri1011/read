@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
 from app.settings import settings
 
 BATCH_SIZE = 20
+
+ProgressCb = Callable[[dict[str, Any]], None]
 
 SYSTEM = """You translate English reading sentences into Chinese for language learners.
 Rules:
@@ -25,7 +27,11 @@ class TranslateError(Exception):
         self.message = message
 
 
-async def fill_missing_targets(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def fill_missing_targets(
+    segments: list[dict[str, Any]],
+    *,
+    on_progress: ProgressCb | None = None,
+) -> list[dict[str, Any]]:
     missing = [s for s in segments if not (s.get("target") or "").strip()]
     if not missing:
         return segments
@@ -34,8 +40,13 @@ async def fill_missing_targets(segments: list[dict[str, Any]]) -> list[dict[str,
         # Leave empty; review can still proceed
         return segments
 
+    total_missing = len(missing)
+    if on_progress:
+        on_progress({"stage": "translate", "page": 0, "total": total_missing})
+
     by_id = {s["id"]: s for s in segments}
-    for start in range(0, len(missing), BATCH_SIZE):
+    done = 0
+    for start in range(0, total_missing, BATCH_SIZE):
         batch = missing[start : start + BATCH_SIZE]
         try:
             translated = await _translate_batch(batch)
@@ -50,6 +61,9 @@ async def fill_missing_targets(segments: list[dict[str, Any]]) -> list[dict[str,
             by_id[sid]["target"] = target
             if by_id[sid].get("origin") != "edited":
                 by_id[sid]["origin"] = "generated"
+        done = min(total_missing, start + len(batch))
+        if on_progress:
+            on_progress({"stage": "translate", "page": done, "total": total_missing})
 
     return [by_id[s["id"]] for s in segments]
 

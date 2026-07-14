@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { SegmentEditor } from "@/components/review/segment-editor";
+import {
+  progressLabel,
+  type JobProgress,
+} from "@/lib/documents/job-progress";
 import type {
   BilingualSegment,
   DraftSegmentsPayload,
@@ -17,12 +21,6 @@ type MarkdownEditorProps = {
   errorMessage?: string | null;
 };
 
-type JobProgress = {
-  stage?: string | null;
-  page?: number;
-  total?: number;
-};
-
 type LatestJobResponse = {
   job?: {
     id: string;
@@ -31,33 +29,6 @@ type LatestJobResponse = {
     error?: { code?: string; message?: string } | null;
   } | null;
 };
-
-function progressLabel(progress: JobProgress | null): string {
-  if (!progress) return "准备中…";
-  const stage = progress.stage ?? "processing";
-  const page = progress.page ?? 0;
-  const total = progress.total ?? 0;
-  if (stage === "render") {
-    return total > 0 ? `正在渲染 PDF（共 ${total} 页）…` : "正在渲染 PDF…";
-  }
-  if (stage === "vision") {
-    if (total > 0) {
-      return `视觉模型识别中：第 ${page}/${total} 页`;
-    }
-    return "视觉模型识别中…";
-  }
-  if (stage === "importing_text") return "正在导入文本…";
-  if (stage === "segment") return "正在切句并对齐译文…";
-  if (stage === "translate") {
-    if (total > 0) {
-      return `正在补译：${page}/${total}`;
-    }
-    return "正在生成中文译文…";
-  }
-  if (stage === "done") return "处理完成";
-  if (stage === "queued") return "已排队，等待 worker…";
-  return `处理中（${stage}）`;
-}
 
 function segmentsEqual(
   a: BilingualSegment[],
