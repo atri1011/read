@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -17,6 +18,7 @@ import {
   type DictRequest,
   type ToolbarAction,
 } from "@/components/reader/selection-toolbar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   createAnnotation,
   fetchAnnotations,
@@ -30,14 +32,13 @@ type Props = {
   title: string;
   bodyHtml: string;
   currentUserId: string;
-  /** Doc-level chrome (shelf link, edit, visibility). Hidden in immersive. */
-  docBar?: ReactNode;
+  /** Owner-only actions (edit, visibility) shown in the top hot-zone. */
+  ownerActions?: ReactNode;
 };
 
 type ReaderPrefs = {
   fontSize: number;
   measure: "narrow" | "normal" | "wide";
-  immersive: boolean;
 };
 
 const FONT_STEPS = [15, 17, 19, 21, 23] as const;
@@ -50,7 +51,6 @@ const MEASURE_CLASS: Record<ReaderPrefs["measure"], string> = {
 const DEFAULT_PREFS: ReaderPrefs = {
   fontSize: 17,
   measure: "normal",
-  immersive: false,
 };
 
 function loadPrefs(): ReaderPrefs {
@@ -68,8 +68,7 @@ function loadPrefs(): ReaderPrefs {
       parsed.measure === "wide"
         ? parsed.measure
         : DEFAULT_PREFS.measure;
-    const immersive = parsed.immersive === true;
-    return { fontSize, measure, immersive };
+    return { fontSize, measure };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -78,28 +77,20 @@ function loadPrefs(): ReaderPrefs {
 function FontMeasureControls({
   prefs,
   updatePrefs,
-  compact,
 }: {
   prefs: ReaderPrefs;
   updatePrefs: (patch: Partial<ReaderPrefs>) => void;
-  compact?: boolean;
 }) {
   const btn =
-    compact === true
-      ? "rounded border border-zinc-300/80 px-2 py-0.5 text-xs hover:bg-black/5 disabled:opacity-40 dark:border-zinc-600 dark:hover:bg-white/10"
-      : "rounded border border-zinc-200 px-2 py-0.5 hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-900";
-
-  const activeMeasure = compact
-    ? "rounded bg-zinc-800 px-2 py-0.5 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900"
-    : "rounded bg-zinc-900 px-2 py-0.5 text-white dark:bg-zinc-100 dark:text-zinc-900";
-
-  const idleMeasure = compact
-    ? "rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-600 hover:bg-black/5 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-white/10"
-    : "rounded border border-zinc-200 px-2 py-0.5 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
+    "rounded border border-zinc-300/80 px-2 py-0.5 text-xs hover:bg-black/5 disabled:opacity-40 dark:border-zinc-600 dark:hover:bg-white/10";
+  const activeMeasure =
+    "rounded bg-zinc-800 px-2 py-0.5 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900";
+  const idleMeasure =
+    "rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-600 hover:bg-black/5 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-white/10";
 
   return (
     <>
-      <span className={compact ? "text-zinc-500" : "text-zinc-500"}>字号</span>
+      <span className="text-zinc-500">字号</span>
       <button
         type="button"
         aria-label="减小字号"
@@ -153,15 +144,22 @@ function FontMeasureControls({
   );
 }
 
-function ImmersiveTocMenu({ items }: { items: TocItem[] }) {
-  const [open, setOpen] = useState(false);
+function ReaderTocMenu({
+  items,
+  open,
+  onOpenChange,
+}: {
+  items: TocItem[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   if (items.length === 0) return null;
 
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => onOpenChange(!open)}
         className="rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-700 hover:bg-black/5 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-white/10"
         aria-expanded={open}
       >
@@ -173,7 +171,7 @@ function ImmersiveTocMenu({ items }: { items: TocItem[] }) {
             type="button"
             aria-label="关闭目录"
             className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setOpen(false)}
+            onClick={() => onOpenChange(false)}
           />
           <ul className="absolute left-0 top-full z-50 mt-1 max-h-64 w-64 overflow-auto rounded-lg border border-zinc-200 bg-white/95 p-2 text-sm shadow-lg backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
             {items.map((item) => (
@@ -183,7 +181,7 @@ function ImmersiveTocMenu({ items }: { items: TocItem[] }) {
               >
                 <a
                   href={`#${item.id}`}
-                  onClick={() => setOpen(false)}
+                  onClick={() => onOpenChange(false)}
                   className="block rounded px-2 py-1 text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   {item.text}
@@ -202,7 +200,7 @@ export function ReaderShell({
   title,
   bodyHtml,
   currentUserId,
-  docBar,
+  ownerActions,
 }: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -222,6 +220,8 @@ export function ReaderShell({
   } | null>(null);
   const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_PREFS);
   const [hotZoneOpen, setHotZoneOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   useEffect(() => {
     setPrefs(loadPrefs());
@@ -229,15 +229,11 @@ export function ReaderShell({
 
   useEffect(() => {
     const root = document.documentElement;
-    if (prefs.immersive) {
-      root.classList.add("immersive-reading");
-    } else {
-      root.classList.remove("immersive-reading");
-    }
+    root.classList.add("immersive-reading");
     return () => {
       root.classList.remove("immersive-reading");
     };
-  }, [prefs.immersive]);
+  }, []);
 
   const updatePrefs = useCallback((patch: Partial<ReaderPrefs>) => {
     setPrefs((prev) => {
@@ -252,17 +248,26 @@ export function ReaderShell({
   }, []);
 
   useEffect(() => {
-    if (!prefs.immersive) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key !== "Escape") return;
+      if (notesOpen) {
         e.preventDefault();
-        updatePrefs({ immersive: false });
+        setNotesOpen(false);
+        return;
+      }
+      if (tocOpen) {
+        e.preventDefault();
+        setTocOpen(false);
+        return;
+      }
+      if (hotZoneOpen) {
+        e.preventDefault();
         setHotZoneOpen(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prefs.immersive, updatePrefs]);
+  }, [notesOpen, tocOpen, hotZoneOpen]);
 
   const reload = useCallback(
     async (withPublic: boolean) => {
@@ -336,86 +341,52 @@ export function ReaderShell({
   }
 
   const measureClass = MEASURE_CLASS[prefs.measure];
-  const immersive = prefs.immersive;
-  const tocItems = useMemo(
-    () => (immersive ? extractTocFromHtml(bodyHtml) : []),
-    [immersive, bodyHtml],
-  );
-
-  const notesProps = {
-    documentId,
-    currentUserId,
-    annotations,
-    includePublic,
-    onIncludePublicChange: setIncludePublic,
-    onSelect: handleSelect,
-    onDeleted: handleDeleted,
-    activeId,
-    loading,
-  };
+  const tocItems = useMemo(() => extractTocFromHtml(bodyHtml), [bodyHtml]);
 
   return (
-    <div
-      className={`reader-page-root flex min-h-0 flex-1 flex-col ${
-        immersive ? "reader-immersive" : ""
-      }`}
-    >
-      {!immersive && docBar}
+    <div className="reader-page-root reader-immersive flex min-h-0 flex-1 flex-col">
+      <Link
+        href="/app/shelf"
+        aria-label="返回书架"
+        className="fixed left-3 top-3 z-30 inline-flex items-center gap-1 rounded-full border border-[color:color-mix(in_srgb,var(--reader-muted)_28%,transparent)] bg-[color:var(--reader-surface)]/90 px-3 py-1.5 text-sm text-[color:var(--reader-muted)] shadow-sm backdrop-blur transition hover:text-[color:var(--reader-fg)] sm:left-4 sm:top-4"
+      >
+        <span aria-hidden>←</span>
+        书架
+      </Link>
 
-      {!immersive && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 bg-white/70 px-4 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-950/70">
-          <FontMeasureControls prefs={prefs} updatePrefs={updatePrefs} />
-          <button
-            type="button"
-            onClick={() => updatePrefs({ immersive: true })}
-            className="ml-auto rounded border border-zinc-200 px-2.5 py-0.5 font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
-          >
-            沉浸
-          </button>
-        </div>
-      )}
-
-      {immersive && (
+      <div
+        className="fixed inset-x-0 top-0 z-40"
+        onMouseEnter={() => setHotZoneOpen(true)}
+        onMouseLeave={() => {
+          if (!tocOpen) setHotZoneOpen(false);
+        }}
+      >
+        {/* Always-on hit target at the top edge (hover or click) */}
         <div
-          className="fixed inset-x-0 top-0 z-40"
-          onMouseEnter={() => setHotZoneOpen(true)}
-          onMouseLeave={() => setHotZoneOpen(false)}
-        >
-          {/* Always-on hit target at the top edge (hover or click) */}
-          <div
-            className="h-3 w-full cursor-default"
-            aria-hidden
-            onClick={() => setHotZoneOpen((v) => !v)}
-          />
-          {hotZoneOpen && (
-            <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 rounded-b-xl border border-zinc-200/80 border-t-0 bg-[color:var(--reader-surface)]/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-zinc-700/80">
-              <FontMeasureControls
-                prefs={prefs}
-                updatePrefs={updatePrefs}
-                compact
-              />
-              <ImmersiveTocMenu items={tocItems} />
-              <button
-                type="button"
-                onClick={() => {
-                  updatePrefs({ immersive: false });
-                  setHotZoneOpen(false);
-                }}
-                className="ml-auto rounded bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                退出沉浸
-              </button>
+          className="h-3 w-full cursor-default"
+          aria-hidden
+          onClick={() => setHotZoneOpen((v) => !v)}
+        />
+        {hotZoneOpen && (
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 rounded-b-xl border border-zinc-200/80 border-t-0 bg-[color:var(--reader-surface)]/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-zinc-700/80">
+            <FontMeasureControls prefs={prefs} updatePrefs={updatePrefs} />
+            <ReaderTocMenu
+              items={tocItems}
+              open={tocOpen}
+              onOpenChange={setTocOpen}
+            />
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <ThemeToggle className="border-zinc-300/80 px-2 py-0.5 text-xs dark:border-zinc-600" />
+              {ownerActions}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       <div className="flex min-h-0 flex-1">
         <div
           ref={scrollRef}
-          className={`min-w-0 flex-1 overflow-auto px-4 py-8 sm:px-8 lg:px-12 ${
-            immersive ? "reader-immersive-scroll" : ""
-          }`}
+          className="reader-immersive-scroll min-w-0 flex-1 overflow-auto px-4 pb-8 pt-14 sm:px-8 lg:px-12"
         >
           <div className={`mx-auto ${measureClass}`}>
             {loadError && (
@@ -428,8 +399,6 @@ export function ReaderShell({
               title={title}
               bodyHtml={bodyHtml}
               fontSize={prefs.fontSize}
-              showToc={!immersive}
-              immersive={immersive}
             />
             <AnnotationLayer
               rootRef={articleRef}
@@ -451,7 +420,19 @@ export function ReaderShell({
           </div>
         </div>
 
-        <NotesPane {...notesProps} forceDrawer={immersive} />
+        <NotesPane
+          documentId={documentId}
+          currentUserId={currentUserId}
+          annotations={annotations}
+          includePublic={includePublic}
+          onIncludePublicChange={setIncludePublic}
+          onSelect={handleSelect}
+          onDeleted={handleDeleted}
+          activeId={activeId}
+          loading={loading}
+          open={notesOpen}
+          onOpenChange={setNotesOpen}
+        />
       </div>
     </div>
   );

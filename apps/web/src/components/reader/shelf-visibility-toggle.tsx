@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 type Props = {
   documentId: string;
   initialVisibility: "private" | "public" | string;
+  compact?: boolean;
 };
 
 export function ShelfVisibilityToggle({
   documentId,
   initialVisibility,
+  compact = false,
 }: Props) {
   const router = useRouter();
   const [visibility, setVisibility] = useState(initialVisibility);
@@ -36,6 +38,23 @@ export function ShelfVisibilityToggle({
       setVisibility(next);
       router.refresh();
     });
+  }
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={pending}
+          className="rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-700 hover:bg-black/5 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-white/10"
+          title={isPublic ? "当前公开" : "当前私有"}
+        >
+          {isPublic ? "公开" : "私有"}
+        </button>
+        {error && <span className="text-[10px] text-red-600">{error}</span>}
+      </div>
+    );
   }
 
   return (

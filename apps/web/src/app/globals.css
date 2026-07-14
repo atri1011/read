@@ -256,12 +256,13 @@ body {
   --reader-surface: #1c1916;
 }
 
+/* Reader paper chrome: hide app shell while reading */
 html.immersive-reading .app-shell-header {
   display: none;
 }
 
 html.immersive-reading .reader-page-root {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .reader-immersive {

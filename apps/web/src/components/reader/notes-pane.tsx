@@ -15,8 +15,9 @@ type NotesPaneProps = {
   activeId?: string | null;
   loading?: boolean;
   className?: string;
-  /** When true, always use drawer (e.g. immersive mode on desktop). */
-  forceDrawer?: boolean;
+  /** Controlled open state (for Esc from parent). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 const TYPE_FILTERS = [
@@ -75,7 +76,7 @@ function NotesList({
   onDeleted,
   activeId,
   loading,
-}: Omit<NotesPaneProps, "className">) {
+}: Omit<NotesPaneProps, "className" | "open" | "onOpenChange">) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [colorFilter, setColorFilter] = useState<string>("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -245,76 +246,61 @@ function NotesList({
 }
 
 export function NotesPane(props: NotesPaneProps) {
-  const [open, setOpen] = useState(false);
-  const { className = "", forceDrawer = false, ...listProps } = props;
-  const useDrawer = forceDrawer;
+  const {
+    className: _className = "",
+    open: openProp,
+    onOpenChange,
+    ...listProps
+  } = props;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : uncontrolledOpen;
+
+  function setOpen(next: boolean) {
+    if (!controlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  }
 
   return (
     <>
-      {/* Desktop side pane (hidden when forceDrawer / immersive) */}
-      {!useDrawer && (
-        <aside
-          className={`hidden w-full max-w-sm shrink-0 flex-col border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 lg:flex ${className}`}
-        >
-          <NotesList {...listProps} />
-        </aside>
-      )}
-
-      {/* Mobile drawer — or desktop drawer when immersive */}
-      <div className={useDrawer ? "" : "lg:hidden"}>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-30 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          笔记
-          {props.annotations.length > 0
-            ? ` (${props.annotations.length})`
-            : ""}
-        </button>
-        {open && (
-          <div
-            className={`fixed inset-0 z-40 flex ${
-              useDrawer
-                ? "flex-row justify-end"
-                : "flex-col justify-end"
-            }`}
-          >
-            <button
-              type="button"
-              aria-label="关闭笔记"
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setOpen(false)}
-            />
-            <div
-              className={`relative z-10 flex flex-col overflow-hidden border bg-white dark:border-zinc-800 dark:bg-zinc-950 ${
-                useDrawer
-                  ? "h-full w-full max-w-sm border-l border-zinc-200 shadow-xl"
-                  : "max-h-[75vh] rounded-t-2xl border-zinc-200"
-              }`}
-            >
-              <div className="flex items-center justify-end border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                >
-                  关闭
-                </button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <NotesList
-                  {...listProps}
-                  onSelect={(id) => {
-                    listProps.onSelect(id);
-                    setOpen(false);
-                  }}
-                />
-              </div>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="fixed bottom-5 right-5 z-30 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900"
+      >
+        笔记
+        {props.annotations.length > 0 ? ` (${props.annotations.length})` : ""}
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-40 flex flex-row justify-end">
+          <button
+            type="button"
+            aria-label="关闭笔记"
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setOpen(false)}
+          />
+          <div className="relative z-10 flex h-full w-full max-w-sm flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-center justify-end border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <NotesList
+                {...listProps}
+                onSelect={(id) => {
+                  listProps.onSelect(id);
+                  setOpen(false);
+                }}
+              />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }

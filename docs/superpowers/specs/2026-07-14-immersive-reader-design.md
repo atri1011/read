@@ -1,7 +1,7 @@
 # Immersive Reader — Design Spec
 
-> Status: **Frozen** (from `/grill-me`, 2026-07-14)  
-> Audience: implementers
+> Status: **Superseded** — reading is always paper/immersive; dual-mode (精读/沉浸) removed.  
+> Audience: implementers (historical)
 
 ## 1. Summary
 
