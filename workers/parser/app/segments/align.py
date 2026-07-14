@@ -17,6 +17,10 @@ def _empty_segment(source: str, target: str = "", origin: Origin = "generated") 
     return {"source": source, "target": target, "origin": origin}
 
 
+def _is_zh_text(text: str) -> bool:
+    return cjk_ratio(text) > 0.3
+
+
 def align_markdown(markdown: str) -> list[dict[str, Any]]:
     """
     Produce unpaired segment dicts (no ids yet) from markdown.
@@ -33,7 +37,12 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
             zh_blocks = blocks[i + 1 :]
             return _pair_streams(en_blocks, zh_blocks)
 
-    # Strategy 2: walk and pair adjacent EN then ZH (or collect streams)
+    # Strategy 2: full-document EN half then ZH half (common bilingual PDF extract)
+    split_at = _find_en_zh_split(blocks)
+    if split_at is not None:
+        return _pair_streams(blocks[:split_at], blocks[split_at:])
+
+    # Strategy 3: walk and pair adjacent EN then ZH runs
     en_stream: list[str] = []
     zh_stream: list[str] = []
     paired: list[dict[str, Any]] = []
@@ -50,32 +59,31 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
                 paired.append(_empty_segment(s, "", "generated"))
             en_stream = []
         elif zh_stream:
-            # Orphan ZH: attach to previous empty target if possible, else drop as source
+            # Orphan ZH: attach to previous empty target when possible.
+            # Never promote pure CJK (esp. titles) to English source — that
+            # creates ghost pairs and shifts subsequent alignment.
             for s in zh_stream:
                 if paired and not paired[-1]["target"]:
                     paired[-1]["target"] = s
                     paired[-1]["origin"] = "extracted"
-                else:
-                    paired.append(_empty_segment(s, "", "extracted"))
+                # else: drop orphan ZH heading/title or stray line
             zh_stream = []
 
     for block in blocks:
         if is_translation_heading(block):
             continue
-        if is_heading(block) and cjk_ratio(block) <= 0.3:
+        # English (or non-CJK) headings start a new structural unit
+        if is_heading(block) and not _is_zh_text(block):
             flush_adjacent()
             paired.append(_empty_segment(block, "", "generated"))
             mode = None
             continue
 
-        is_zh = cjk_ratio(block) > 0.3
+        is_zh = _is_zh_text(block)
         sents = sentences_for_block(block)
         if is_zh:
             if mode == "en" and en_stream:
                 # closing EN run with this ZH block — keep collecting ZH until EN returns
-                zh_stream.extend(sents)
-                mode = "zh"
-            elif mode == "zh" or mode is None:
                 zh_stream.extend(sents)
                 mode = "zh"
             else:
@@ -92,10 +100,57 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
     # If everything was pure EN, we already flushed as empty targets
     if not paired:
         for block in blocks:
+            if _is_zh_text(block):
+                continue
             for s in sentences_for_block(block):
                 paired.append(_empty_segment(s, "", "generated"))
 
     return _with_ids(paired)
+
+
+def _find_en_zh_split(blocks: list[str]) -> int | None:
+    """
+    Detect bipartite layout: English body followed by Chinese body.
+    Leading CJK title headings are allowed above the EN half.
+    Returns index where the ZH half starts, or None.
+
+    Requires pure-EN left body and pure-ZH right so alternating
+    EN/ZH paragraphs are not misclassified as two halves.
+    """
+    if len(blocks) < 2:
+        return None
+
+    flags = [_is_zh_text(b) for b in blocks]
+
+    # Optional leading ZH titles (document title above English half)
+    start = 0
+    while start < len(blocks) and flags[start] and _looks_like_title_line(
+        blocks[start]
+    ):
+        start += 1
+
+    best: int | None = None
+    best_score = 0
+
+    for i in range(max(start + 1, 1), len(blocks)):
+        left_flags = flags[start:i]
+        right_flags = flags[i:]
+        if not left_flags or not right_flags:
+            continue
+        # Left body must be pure EN; right half pure ZH
+        if any(left_flags):
+            continue
+        if not all(right_flags):
+            continue
+
+        score = len(left_flags) + len(right_flags)
+        if score > best_score:
+            best_score = score
+            best = i
+
+    if best is not None and best_score >= 2:
+        return best
+    return None
 
 
 def _pair_streams(en_blocks: list[str], zh_blocks: list[str]) -> list[dict[str, Any]]:
@@ -103,6 +158,9 @@ def _pair_streams(en_blocks: list[str], zh_blocks: list[str]) -> list[dict[str, 
     zh_sents: list[str] = []
     for b in en_blocks:
         if is_translation_heading(b):
+            continue
+        # Leading Chinese title often sits above the English half — not a source.
+        if _is_zh_text(b):
             continue
         en_sents.extend(sentences_for_block(b))
     for b in zh_blocks:
@@ -112,7 +170,65 @@ def _pair_streams(en_blocks: list[str], zh_blocks: list[str]) -> list[dict[str, 
     return _with_ids(_zip_sentence_lists(en_sents, zh_sents))
 
 
+def _strip_extra_zh_headings(en: list[str], zh: list[str]) -> tuple[list[str], list[str]]:
+    """
+    Drop ZH section titles that have no EN heading counterpart.
+
+    Common bilingual extracts repeat the document title only on the ZH side
+    (or on both sides as CJK), which otherwise shifts every pair by one.
+    """
+    en = list(en)
+    zh = list(zh)
+
+    en_starts_with_heading = bool(en) and is_heading(en[0])
+
+    while zh and is_heading(zh[0]) and not en_starts_with_heading:
+        zh.pop(0)
+
+    # If both start with headings, keep one pair; drop additional ZH-only titles
+    if en_starts_with_heading and zh and is_heading(zh[0]):
+        # pair first headings; strip further leading ZH headings beyond one
+        i = 1
+        while i < len(zh) and is_heading(zh[i]) and (
+            i >= len(en) or not is_heading(en[i])
+        ):
+            i += 1
+        if i > 1:
+            zh = [zh[0], *zh[i:]]
+
+    # Count mismatch of +1 with a short title-like first ZH line (no #)
+    if (
+        en
+        and zh
+        and len(zh) == len(en) + 1
+        and not en_starts_with_heading
+        and _looks_like_title_line(zh[0])
+    ):
+        zh = zh[1:]
+
+    return en, zh
+
+
+def _looks_like_title_line(text: str) -> bool:
+    plain = text.strip()
+    if is_heading(plain):
+        return True
+    # Short CJK-only line without sentence punctuation → likely a title
+    if not _is_zh_text(plain):
+        return False
+    if len(plain) > 40:
+        return False
+    if any(p in plain for p in "。！？；;"):
+        return False
+    return True
+
+
 def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
+    en, zh = _strip_extra_zh_headings(en, zh)
+    # Final guard: never keep CJK-only strings as English sources
+    en = [s for s in en if s and not _is_zh_text(s)]
+    zh = [s for s in zh if s]
+
     out: list[dict[str, Any]] = []
     n = max(len(en), len(zh))
     # Prefer 1:1 when counts close; otherwise sequential fill
@@ -145,9 +261,12 @@ def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
 
 def _with_ids(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for i, seg in enumerate(segments):
+    for seg in segments:
         source = (seg.get("source") or "").strip()
         if not source:
+            continue
+        # Bilingual pipeline is EN→ZH; skip accidental CJK sources
+        if _is_zh_text(source):
             continue
         result.append(
             {
