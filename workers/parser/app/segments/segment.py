@@ -37,6 +37,22 @@ _TRANSLATION_HEADINGS = frozenset(
     }
 )
 
+# Longer labels first so "chinese translation" wins over "chinese".
+_SECTION_LABEL_RE = (
+    r"english source|chinese translation|中文译文|translation|译文|"
+    r"source|原文|article|正文|english|chinese|中文|zh"
+)
+# ## Source rest...  OR  ## Translation：正文  (inline heading + body)
+_INLINE_SECTION = re.compile(
+    rf"^(#{{1,6}})\s*({_SECTION_LABEL_RE})\b[ \t]*[:：]?[ \t]*(.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+# Strip accidental section labels left inside a source/target string.
+_LEADING_SECTION_LABEL = re.compile(
+    rf"^(?:#{{1,6}}\s*)?(?:{_SECTION_LABEL_RE})\b[ \t]*[:：]?[ \t]*",
+    re.IGNORECASE,
+)
+
 
 def strip_page_separators(markdown: str) -> str:
     return re.sub(r"\n\s*---\s*\n", "\n\n", markdown)
@@ -74,6 +90,58 @@ def is_source_heading(block: str) -> bool:
     return _heading_plain(block) in _SOURCE_HEADINGS
 
 
+def _section_kind(label: str) -> str | None:
+    plain = label.strip().lower()
+    if plain in _SOURCE_HEADINGS:
+        return "source"
+    if plain in _TRANSLATION_HEADINGS:
+        return "translation"
+    return None
+
+
+def expand_section_headings(blocks: list[str]) -> list[str]:
+    """
+    Split inline section headings into a heading block + body block.
+
+    Vision models often emit:
+      ## Source As a freshman...
+      ## Translation 作为一名...
+    instead of a heading-only line. Without expansion, heading detection fails
+    and the label leaks into the English source.
+    """
+    out: list[str] = []
+    for block in blocks:
+        text = block.strip()
+        if not text:
+            continue
+        m = _INLINE_SECTION.match(text)
+        if not m:
+            out.append(block)
+            continue
+        kind = _section_kind(m.group(2))
+        trailing = (m.group(3) or "").strip()
+        if kind is None:
+            out.append(block)
+            continue
+        out.append("## Source" if kind == "source" else "## Translation")
+        if trailing:
+            out.append(trailing)
+    return out
+
+
+def strip_section_label_prefix(text: str) -> str:
+    """Remove a leading Source/Translation label if it leaked into sentence text."""
+    prev = None
+    cur = (text or "").strip()
+    # At most two passes (e.g. "## Source Source ...")
+    for _ in range(2):
+        if prev == cur:
+            break
+        prev = cur
+        cur = _LEADING_SECTION_LABEL.sub("", cur).strip()
+    return cur
+
+
 def is_junk_block(block: str) -> bool:
     """True for chrome/noise that must not become bilingual sentences."""
     plain = re.sub(r"^#{1,6}\s*", "", block).strip()
@@ -95,8 +163,9 @@ def is_junk_block(block: str) -> bool:
 
 
 def sanitize_markdown(markdown: str) -> str:
-    """Drop junk blocks (page numbers, URL-only lines, etc.) before align."""
-    blocks = [b for b in split_blocks(markdown) if not is_junk_block(b)]
+    """Expand section headings, then drop junk blocks before align."""
+    blocks = expand_section_headings(split_blocks(markdown))
+    blocks = [b for b in blocks if not is_junk_block(b)]
     return "\n\n".join(blocks)
 
 

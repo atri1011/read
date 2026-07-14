@@ -12,6 +12,7 @@ from app.segments.segment import (
     sanitize_markdown,
     sentences_for_block,
     split_blocks,
+    strip_section_label_prefix,
 )
 
 Origin = Literal["extracted", "generated", "edited"]
@@ -36,16 +37,22 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
         return []
 
     # Strategy 0: explicit ## Source ... ## Translation sections
+    # Only when the Translation half is pure ZH. Mixed trailing EN/ZH
+    # (common when vision labels only the first paragraph) must fall through
+    # to alternating pairing — otherwise later English is swallowed as "ZH".
     sectioned = _pair_source_translation_sections(blocks)
     if sectioned is not None:
         return sectioned
 
-    # Strategy 1: explicit Translation section
+    # Strategy 1: explicit Translation section with pure-ZH right half
     for i, block in enumerate(blocks):
         if is_translation_heading(block):
-            en_blocks = [b for b in blocks[:i] if not is_source_heading(b)]
             zh_blocks = blocks[i + 1 :]
-            return _pair_streams(en_blocks, zh_blocks)
+            if _is_pure_zh_half(zh_blocks):
+                en_blocks = [b for b in blocks[:i] if not is_source_heading(b)]
+                return _pair_streams(en_blocks, zh_blocks)
+            # Mixed content after Translation → ignore heading, use later strategies
+            break
 
     # Strategy 2: full-document EN half then ZH half (common bilingual PDF extract)
     split_at = _find_en_zh_split(blocks)
@@ -90,8 +97,15 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
             continue
 
         is_zh = _is_zh_text(block)
-        sents = sentences_for_block(block)
+        sents = [
+            strip_section_label_prefix(s)
+            for s in sentences_for_block(block)
+        ]
+        sents = [s for s in sents if s]
         if is_zh:
+            sents = [s for s in sents if _is_zh_text(s)]
+            if not sents:
+                continue
             if mode == "en" and en_stream:
                 # closing EN run with this ZH block — keep collecting ZH until EN returns
                 zh_stream.extend(sents)
@@ -100,6 +114,9 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
                 zh_stream.extend(sents)
                 mode = "zh"
         else:
+            sents = [s for s in sents if not _is_zh_text(s)]
+            if not sents:
+                continue
             if mode == "zh" and (en_stream or zh_stream):
                 flush_adjacent()
             en_stream.extend(sents)
@@ -118,6 +135,20 @@ def align_markdown(markdown: str) -> list[dict[str, Any]]:
     return _with_ids(paired)
 
 
+def _is_pure_zh_half(blocks: list[str]) -> bool:
+    """True when every content block is Chinese (section titles allowed)."""
+    content = [
+        b
+        for b in blocks
+        if not is_source_heading(b)
+        and not is_translation_heading(b)
+        and not is_junk_block(b)
+    ]
+    if not content:
+        return False
+    return all(_is_zh_text(b) for b in content)
+
+
 def _pair_source_translation_sections(blocks: list[str]) -> list[dict[str, Any]] | None:
     """
     Prefer structured vision output:
@@ -125,7 +156,7 @@ def _pair_source_translation_sections(blocks: list[str]) -> list[dict[str, Any]]
       ...
       ## Translation
       ...
-    Returns paired segments, or None if structure not present.
+    Returns paired segments, or None if structure not present / not pure ZH half.
     """
     source_idx: int | None = None
     translation_idx: int | None = None
@@ -141,11 +172,15 @@ def _pair_source_translation_sections(blocks: list[str]) -> list[dict[str, Any]]
     if source_idx is not None and source_idx < translation_idx:
         en_blocks = blocks[source_idx + 1 : translation_idx]
         zh_blocks = blocks[translation_idx + 1 :]
+        if not _is_pure_zh_half(zh_blocks):
+            return None
         return _pair_streams(en_blocks, zh_blocks)
 
     # Translation heading only (legacy free-form with ## Translation)
     en_blocks = [b for b in blocks[:translation_idx] if not is_source_heading(b)]
     zh_blocks = blocks[translation_idx + 1 :]
+    if not _is_pure_zh_half(zh_blocks):
+        return None
     return _pair_streams(en_blocks, zh_blocks)
 
 
@@ -203,11 +238,20 @@ def _pair_streams(en_blocks: list[str], zh_blocks: list[str]) -> list[dict[str, 
         # Leading Chinese title often sits above the English half — not a source.
         if _is_zh_text(b):
             continue
-        en_sents.extend(sentences_for_block(b))
+        for s in sentences_for_block(b):
+            cleaned = strip_section_label_prefix(s)
+            if cleaned and not _is_zh_text(cleaned):
+                en_sents.append(cleaned)
     for b in zh_blocks:
         if is_translation_heading(b) or is_source_heading(b) or is_junk_block(b):
             continue
-        zh_sents.extend(sentences_for_block(b))
+        # Never treat English leftovers as Chinese targets
+        if not _is_zh_text(b):
+            continue
+        for s in sentences_for_block(b):
+            cleaned = strip_section_label_prefix(s)
+            if cleaned and _is_zh_text(cleaned):
+                zh_sents.append(cleaned)
     return _with_ids(_zip_sentence_lists(en_sents, zh_sents))
 
 
@@ -312,10 +356,13 @@ def _zip_by_length(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
 
 
 def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
+    en = [strip_section_label_prefix(s) for s in en]
+    zh = [strip_section_label_prefix(s) for s in zh]
     en, zh = _strip_extra_zh_headings(en, zh)
-    # Final guard: never keep CJK-only strings as English sources
+    # Final guard: never keep CJK-only strings as English sources;
+    # never keep non-CJK strings as Chinese targets.
     en = [s for s in en if s and not _is_zh_text(s)]
-    zh = [s for s in zh if s]
+    zh = [s for s in zh if s and _is_zh_text(s)]
 
     if not en:
         return []
@@ -341,18 +388,24 @@ def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
 def _with_ids(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for seg in segments:
-        source = (seg.get("source") or "").strip()
+        source = strip_section_label_prefix((seg.get("source") or "").strip())
         if not source:
             continue
         # Bilingual pipeline is EN→ZH; skip accidental CJK sources
         if _is_zh_text(source):
             continue
+        target = strip_section_label_prefix((seg.get("target") or "").strip())
+        if target and not _is_zh_text(target):
+            target = ""
+        origin = seg.get("origin") or "generated"
+        if not target and origin == "extracted":
+            origin = "generated"
         result.append(
             {
                 "id": f"s-{len(result)}",
                 "source": source,
-                "target": (seg.get("target") or "").strip(),
-                "origin": seg.get("origin") or "generated",
+                "target": target,
+                "origin": origin,
             }
         )
     return result

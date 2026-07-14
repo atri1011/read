@@ -16,19 +16,27 @@ _MIN_RATIO = 0.15
 _MAX_RATIO = 2.5
 _MIN_EXTRACTED_FOR_RATIO = 3
 _BAD_RATIO_FRACTION = 0.25
+# Always verify when we have this many extracted bilingual pairs.
+# Length heuristics miss semantic off-by-one shifts (similar-length wrong pairs).
+_MIN_EXTRACTED_ALWAYS_REALIGN = 2
+# Prefer one global batch when the doc is small enough — off-by-one needs full context.
+_GLOBAL_REALIGN_MAX = 40
 
 SYSTEM = """You verify and repair English-Chinese sentence pairs for a language-learning reader.
 
 You receive a list of pairs: {id, source, target}.
-Some targets may be misaligned (shifted, swapped, or attached to the wrong source).
+Some targets may be misaligned (shifted by one, swapped, or attached to the wrong source).
+A common failure: one missing Chinese sentence shifts ALL later pairs.
 
 Task:
-1. Read all sources and all targets.
-2. Reassign each non-empty target to the source it actually translates.
-3. If a target does not match any source well, set target to "" for that id.
-4. Do not invent new English sources. Do not merge/split ids. Keep the same id set.
-5. Do not rewrite source text. Prefer the original Chinese wording when reassigning; only lightly normalize whitespace.
-6. Output JSON only:
+1. Read ALL English sources and ALL Chinese targets as two pools.
+2. Match each Chinese target to the English source it actually translates (by meaning).
+3. If a source has no matching Chinese in the pool, set its target to "".
+4. If a Chinese line does not match any source, discard it (do not force-attach).
+5. Do not invent new English sources. Do not merge/split ids. Keep the same id set and order.
+6. Do not rewrite source text. Prefer the original Chinese wording when reassigning; only lightly normalize whitespace.
+7. Do not invent Chinese translations for empty targets — leave target "".
+8. Output JSON only:
 {"pairs":[{"id":"s-0","target":"..."}, ...]}
 - Include every input id exactly once.
 - target may be empty string.
@@ -79,6 +87,11 @@ def alignment_suspicion(segments: list[dict[str, Any]]) -> dict[str, Any]:
     if settings.bilingual_always_realign and extracted_count > 0:
         needs = True
         reasons.append("always_realign")
+
+    # Semantic off-by-one often keeps similar lengths — always verify extracted bilingual.
+    if extracted_count >= _MIN_EXTRACTED_ALWAYS_REALIGN:
+        needs = True
+        reasons.append("extracted_bilingual")
 
     if extracted_count >= _MIN_EXTRACTED_FOR_RATIO:
         if bad_count / extracted_count >= _BAD_RATIO_FRACTION:
@@ -152,18 +165,27 @@ async def realign_pairs(
         return segments
 
     batch_size = max(5, settings.bilingual_realign_batch_size)
-    overlap = 2
-    step = max(1, batch_size - overlap)
-
-    merged: dict[str, str] = {}
     total = len(segments)
     if on_progress:
         on_progress({"stage": "realign", "page": 0, "total": total})
 
-    for start in range(0, total, step):
-        batch = segments[start : start + batch_size]
+    # Global reassignment for small/medium docs (off-by-one needs full context).
+    if total <= max(_GLOBAL_REALIGN_MAX, batch_size):
+        windows = [segments]
+    else:
+        overlap = 2
+        step = max(1, batch_size - overlap)
+        windows = []
+        for start in range(0, total, step):
+            windows.append(segments[start : start + batch_size])
+            if start + batch_size >= total:
+                break
+
+    merged: dict[str, str] = {}
+    done = 0
+    for batch in windows:
         if not batch:
-            break
+            continue
         try:
             pairs = await _realign_batch(batch)
         except RealignError:
@@ -173,17 +195,9 @@ async def realign_pairs(
             sid = item.get("id")
             if isinstance(sid, str):
                 merged[sid] = item.get("target") or ""
+        done = min(total, done + len(batch))
         if on_progress:
-            on_progress(
-                {
-                    "stage": "realign",
-                    "page": min(total, start + len(batch)),
-                    "total": total,
-                }
-            )
-        # Last window covered the tail
-        if start + batch_size >= total:
-            break
+            on_progress({"stage": "realign", "page": done, "total": total})
 
     if not merged:
         return segments
@@ -201,7 +215,10 @@ async def _realign_batch(batch: list[dict[str, Any]]) -> list[dict[str, str]]:
         if s.get("id")
     ]
     user = (
-        "Realign Chinese targets to the correct English sources. Return JSON only.\n"
+        "Realign Chinese targets to the correct English sources by meaning. "
+        "If one Chinese sentence is missing, leave that English id's target empty "
+        "and shift later Chinese to the matching English — do not keep a shifted chain. "
+        "Return JSON only.\n"
         + json.dumps({"items": items}, ensure_ascii=False)
     )
     url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"

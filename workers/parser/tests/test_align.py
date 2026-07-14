@@ -165,3 +165,102 @@ def test_junk_blocks_do_not_become_sources() -> None:
     assert all(s["source"] not in {"12", "Page 3"} for s in segs)
     assert any(s["source"].startswith("Hello") for s in segs)
     assert any("你好" in s["target"] for s in segs if s["target"])
+
+
+def test_inline_source_heading_not_in_source_text() -> None:
+    md = (
+        "## Source As a freshman in high school, I faced numerous problems while learning English.\n\n"
+        "## Translation 作为一名高一新生，我在英语学习中遇到了很多问题。"
+    )
+    segs = align_markdown(md)
+    assert len(segs) >= 1
+    assert segs[0]["source"].startswith("As a freshman")
+    assert "Source" not in segs[0]["source"]
+    assert "作为一名" in segs[0]["target"]
+    assert "Translation" not in segs[0]["target"]
+
+
+def test_mixed_section_then_alternating_does_not_swallow_english() -> None:
+    """## Source/Translation only on first para; rest is interleaved EN/ZH."""
+    md = (
+        "## Source\n\n"
+        "As a freshman I faced problems.\n\n"
+        "## Translation\n\n"
+        "作为一名新生我遇到了问题。\n\n"
+        "One day my teacher helped me.\n\n"
+        "有一天老师帮助了我。\n\n"
+        "She gave me advice.\n\n"
+        "她给了我建议。"
+    )
+    segs = align_markdown(md)
+    sources = [s["source"] for s in segs]
+    assert any("freshman" in s for s in sources)
+    assert any("One day" in s for s in sources)
+    assert any("She gave" in s for s in sources)
+    # English after Translation must remain sources, not disappear
+    assert len(segs) >= 3
+    # First pairs should keep Chinese targets
+    by_src = {s["source"]: s["target"] for s in segs}
+    assert any("新生" in (t or "") for t in by_src.values())
+    assert any("老师" in (t or "") for t in by_src.values())
+
+
+def test_freshman_shift_fixture_structure() -> None:
+    """
+    User-reported layout: inline section labels + alternating body.
+    Missing ZH for 'She stressed...' shifts later pairs in raw zip —
+    structure checks here; LLM realign repairs meaning when API is available.
+    """
+    md = """## Source As a freshman in high school, I faced numerous problems while learning English. It was a major challenge for me, and my progress was slow. Actually, I often felt defeated by the ups and downs of language learning. My attitude towards English was not positive, and it seemed like a very difficult task.
+
+## Translation 作为一名高一新生，我在英语学习中遇到了很多问题。这对我来说是个不小的挑战，进步也十分缓慢。事实上，语言学习中的起起落落常常让我感到挫败。我对英语的态度并不积极，总觉得它是一项艰巨的任务。
+
+One day, my English teacher noticed my problems and referred to my situation as a common type of challenge that many students face.
+
+有一天，英语老师注意到了我的问题，她说这是很多学生都会遇到的普遍挑战。
+
+She sat with me and provided specific suggestions on how to learn English.
+
+她坐下来，给我提供了具体的英语学习建议。
+
+She stressed the importance of having the right attitude and determination, which she said were key factors in overcoming the difficulties.
+
+她向我推荐了一些传统方法，比如坚持写词汇日记，把新单词和我喜欢的电影角色联系起来记忆。
+
+She recommended traditional methods to me, like keeping a vocabulary journal and connecting new words with characters in my favorite movies.
+
+这让学习过程变得有趣多了。
+
+It made the learning process more fun.
+
+在她的悉心指导下，我的英语能力开始快速提升。
+
+With her perfect instruction, my English skills began to improve quickly.
+
+我明白了，态度是影响学习进度的重要因素，既能阻碍也能助力进步。
+
+I learned that my attitude was an important aspect that could either affect or help my progress.
+
+这段经历让我懂得，只要方法得当，任何困难都能被克服。
+
+This experience taught me that with the right means, any difficulty can be overcome.
+
+这正印证了那句老话：“有志者，事竟成。
+
+It proves the saying, “Where there’s a will, there’s a way.”
+"""
+    from app.segments.verify import alignment_suspicion
+
+    segs = align_markdown(md)
+    assert len(segs) >= 8
+    assert all(not s["source"].lower().startswith("source") for s in segs)
+    assert all("##" not in s["source"] for s in segs)
+    # All later English body sentences must be present as sources
+    joined = " ".join(s["source"] for s in segs)
+    assert "She stressed" in joined
+    assert "She recommended" in joined
+    assert "It proves the saying" in joined
+    # With ≥2 extracted pairs, realign must be scheduled
+    suspicion = alignment_suspicion(segs)
+    assert suspicion["needs_realign"] is True
+    assert suspicion["extracted"] >= 2

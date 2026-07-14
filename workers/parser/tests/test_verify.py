@@ -21,7 +21,8 @@ def test_is_bad_pair_length_outliers() -> None:
     assert is_bad_pair("Hello world, how are you today?", "你好，你今天怎么样？") is False
 
 
-def test_suspicion_clean_pairs_false() -> None:
+def test_suspicion_extracted_bilingual_always() -> None:
+    """Semantic shifts keep similar lengths — always realign when ≥2 extracted."""
     segs = [
         {
             "id": "s-0",
@@ -43,9 +44,25 @@ def test_suspicion_clean_pairs_false() -> None:
         },
     ]
     result = alignment_suspicion(segs)
-    assert result["needs_realign"] is False
+    assert result["needs_realign"] is True
+    assert "extracted_bilingual" in result["reasons"]
     assert result["extracted"] == 3
     assert result["bad"] == 0
+
+
+def test_suspicion_single_extracted_no_force() -> None:
+    segs = [
+        {
+            "id": "s-0",
+            "source": "Hello world.",
+            "target": "你好，世界。",
+            "origin": "extracted",
+        }
+    ]
+    result = alignment_suspicion(segs)
+    # One pair alone is not enough to force realign (unless length-bad / always flag)
+    assert result["needs_realign"] is False
+    assert result["extracted"] == 1
 
 
 def test_suspicion_shifted_length_true() -> None:

@@ -78,3 +78,19 @@ def test_sanitize_keeps_source_translation_headings() -> None:
     assert "Hello world." in cleaned
     assert "你好，世界。" in cleaned
     assert "https://noise.example" not in cleaned
+
+
+def test_expand_inline_source_translation_headings() -> None:
+    """Vision often puts heading label and body on the same line."""
+    md = (
+        "## Source As a freshman I faced problems.\n\n"
+        "## Translation 作为一名新生我遇到了问题。"
+    )
+    cleaned = sanitize_markdown(md)
+    assert "## Source" in cleaned
+    assert "## Translation" in cleaned
+    assert "As a freshman I faced problems." in cleaned
+    assert "作为一名新生我遇到了问题。" in cleaned
+    # Label must not remain glued to the body
+    assert "Source As" not in cleaned
+    assert "Translation 作为" not in cleaned
