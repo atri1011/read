@@ -1,4 +1,4 @@
-// apps/web/src/components/shelf/document-card.tsx
+import Link from "next/link";
 import {
   isActiveParseStatus,
   progressBadgeText,
@@ -85,7 +85,7 @@ export function DocumentCard({
         <div className="pointer-events-none absolute right-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-col items-end gap-1">
           {showStatus && (
             <span
-              className={`pointer-events-auto inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-medium ${statusToneClass(doc.status, doc.job)}`}
+              className={`inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11px] font-medium ${statusToneClass(doc.status, doc.job)}`}
             >
               {active && (
                 <span
@@ -121,7 +121,7 @@ export function DocumentCard({
           </button>
         )}
 
-        <a
+        <Link
           href={docHref(doc)}
           className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shelf-card-fg)]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--shelf-card-bg)]"
           title={doc.sourceFilename ?? doc.title}
@@ -163,7 +163,7 @@ export function DocumentCard({
           <p className="mt-auto truncate pt-3 text-center text-[11px] text-[var(--shelf-card-muted)]">
             更新于 {formatDate(doc.updatedAt)}
           </p>
-        </a>
+        </Link>
       </article>
     </li>
   );

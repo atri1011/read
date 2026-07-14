@@ -93,7 +93,10 @@ export function UploadDropzone({ onUploaded }: UploadDropzoneProps) {
       />
       <div
         role="button"
-        tabIndex={0}
+        tabIndex={pending ? -1 : 0}
+        aria-disabled={pending}
+        aria-busy={pending}
+        aria-label="上传文件到书架"
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();

@@ -126,6 +126,7 @@ export function ShelfTabs() {
               <button
                 key={tab.id}
                 type="button"
+                aria-pressed={active}
                 onClick={() => setScope(tab.id)}
                 className={
                   active
