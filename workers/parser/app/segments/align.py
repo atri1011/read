@@ -308,50 +308,107 @@ def _looks_like_title_line(text: str) -> bool:
     return True
 
 
-def _length_score(en: str, zh: str) -> float:
-    """Lower is better: log-length distance between EN and ZH strings."""
-    return abs(math.log(len(zh) + 1) - math.log(len(en) + 1))
+def _effective_len(text: str) -> float:
+    """
+    Length proxy comparable across EN/ZH.
+    CJK characters carry more semantic weight per char than Latin.
+    """
+    if not text:
+        return 1.0
+    cjk_n = 0
+    other_n = 0
+    for ch in text:
+        o = ord(ch)
+        if 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF:
+            cjk_n += 1
+        elif not ch.isspace():
+            other_n += 1
+    # Map both to ~"English letter" units
+    return max(1.0, other_n + cjk_n * 1.8)
 
 
-def _zip_by_length(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
+def _pair_cost(en: str, zh: str) -> float:
+    """Lower is better. CJK-aware log-length distance; titles slightly penalized as matches."""
+    el = _effective_len(en)
+    zl = _effective_len(zh)
+    cost = abs(math.log(zl) - math.log(el))
+    if _looks_like_title_line(zh) and len(en) > 40:
+        cost += 0.8
+    return cost
+
+
+# Gap costs for DP alignment (must exceed typical good-pair cost ~0.1–0.5)
+_GAP_EN = 0.85  # leave English without Chinese
+_GAP_ZH = 0.95  # skip a Chinese sentence
+_GAP_ZH_TITLE = 0.25  # cheap to drop ZH-only titles
+
+
+def _zip_by_dp(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
     """
-    Greedy length-aware zip with limited ZH skip budget.
-    Skips extra short ZH titles/orphans that would shift later pairs.
+    Global sentence alignment (Needleman–Wunsch style).
+
+    Prefer matching by CJK-aware length; allow gaps so one missing Chinese
+    does not shift every later pair. Title-like ZH is cheap to skip.
     """
+    n, m = len(en), len(zh)
+    # dp[i][j] = best cost aligning en[:i] with zh[:j]
+    inf = 1e9
+    dp = [[inf] * (m + 1) for _ in range(n + 1)]
+    bt: list[list[tuple[int, int, str]]] = [
+        [(0, 0, "")] * (m + 1) for _ in range(n + 1)
+    ]
+    dp[0][0] = 0.0
+    for i in range(1, n + 1):
+        dp[i][0] = dp[i - 1][0] + _GAP_EN
+        bt[i][0] = (i - 1, 0, "en")
+    for j in range(1, m + 1):
+        gap = _GAP_ZH_TITLE if _looks_like_title_line(zh[j - 1]) else _GAP_ZH
+        dp[0][j] = dp[0][j - 1] + gap
+        bt[0][j] = (0, j - 1, "zh")
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            match = dp[i - 1][j - 1] + _pair_cost(en[i - 1], zh[j - 1])
+            skip_en = dp[i - 1][j] + _GAP_EN
+            gap_zh = (
+                _GAP_ZH_TITLE if _looks_like_title_line(zh[j - 1]) else _GAP_ZH
+            )
+            skip_zh = dp[i][j - 1] + gap_zh
+
+            best = match
+            prev = (i - 1, j - 1, "match")
+            if skip_en < best:
+                best = skip_en
+                prev = (i - 1, j, "en")
+            if skip_zh < best:
+                best = skip_zh
+                prev = (i, j - 1, "zh")
+            dp[i][j] = best
+            bt[i][j] = prev
+
+    # Backtrack
+    pairs_rev: list[tuple[str, str]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        pi, pj, op = bt[i][j]
+        if op == "match":
+            pairs_rev.append((en[i - 1], zh[j - 1]))
+        elif op == "en":
+            pairs_rev.append((en[i - 1], ""))
+        elif op == "zh":
+            # dropped ZH (title / orphan)
+            pass
+        else:
+            break
+        if pi == i and pj == j:
+            break
+        i, j = pi, pj
+
+    pairs_rev.reverse()
     out: list[dict[str, Any]] = []
-    zi = 0
-    skip_budget = max(1, abs(len(zh) - len(en)))
-
-    for src in en:
-        if zi >= len(zh):
-            out.append(_empty_segment(src, "", "generated"))
-            continue
-
-        # Optionally skip one (or more, within budget) ZH that fit poorly
-        while (
-            skip_budget > 0
-            and zi + 1 < len(zh)
-            and _length_score(src, zh[zi]) > _length_score(src, zh[zi + 1]) + 0.15
-        ):
-            # Prefer skipping title-like / very short orphans
-            candidate = zh[zi]
-            if _looks_like_title_line(candidate) or len(candidate) < max(8, len(src) // 6):
-                zi += 1
-                skip_budget -= 1
-            else:
-                # Also skip if current is clearly worse than next by a large margin
-                if _length_score(src, zh[zi]) > _length_score(src, zh[zi + 1]) + 0.45:
-                    zi += 1
-                    skip_budget -= 1
-                else:
-                    break
-
-        tgt = zh[zi] if zi < len(zh) else ""
-        if tgt:
-            zi += 1
+    for src, tgt in pairs_rev:
         origin: Origin = "extracted" if tgt else "generated"
         out.append(_empty_segment(src, tgt, origin))
-
     return out
 
 
@@ -369,20 +426,7 @@ def _zip_sentence_lists(en: list[str], zh: list[str]) -> list[dict[str, Any]]:
     if not zh:
         return [_empty_segment(s, "", "generated") for s in en]
 
-    # Prefer length-aware zip when counts are close; otherwise sequential fill
-    if abs(len(en) - len(zh)) <= max(1, len(en) // 5):
-        return _zip_by_length(en, zh)
-
-    # Sequential: consume ZH for each EN
-    out: list[dict[str, Any]] = []
-    zi = 0
-    for src in en:
-        tgt = zh[zi] if zi < len(zh) else ""
-        if tgt:
-            zi += 1
-        origin: Origin = "extracted" if tgt else "generated"
-        out.append(_empty_segment(src, tgt, origin))
-    return out
+    return _zip_by_dp(en, zh)
 
 
 def _with_ids(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -80,6 +80,23 @@ def test_sanitize_keeps_source_translation_headings() -> None:
     assert "https://noise.example" not in cleaned
 
 
+def test_split_english_curly_quotes_boundary() -> None:
+    text = "“Never give up. Stick to the plan,” she said. Next sentence starts here."
+    sents = split_english_sentences(text)
+    assert any("Stick to the plan" in s for s in sents)
+    assert any(s.startswith("Next sentence") for s in sents)
+    assert not any("she said" in s and "Next sentence" in s for s in sents)
+
+
+def test_split_chinese_respects_quotes() -> None:
+    from app.segments.segment import split_chinese_sentences
+
+    text = "“第一句。第二句，”她说。“第三句。”然后旁白。"
+    sents = split_chinese_sentences(text)
+    assert not any(s.startswith("”") for s in sents)
+    assert any("然后旁白" in s for s in sents)
+
+
 def test_expand_inline_source_translation_headings() -> None:
     """Vision often puts heading label and body on the same line."""
     md = (

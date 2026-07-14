@@ -205,6 +205,90 @@ def test_mixed_section_then_alternating_does_not_swallow_english() -> None:
     assert any("老师" in (t or "") for t in by_src.values())
 
 
+def test_unicode_quotes_do_not_merge_english_sentences() -> None:
+    """Curly quotes after period must still allow a sentence boundary."""
+    from app.segments.segment import split_english_sentences
+
+    text = (
+        "“Hold on: never give up. Stick to your plan,” she said. "
+        "“Help others on your journey. Success is sweeter when shared.” "
+        "She previously explained that “you do not need to look good.”"
+    )
+    sents = split_english_sentences(text)
+    joined = " | ".join(sents)
+    assert any("Hold on" in s for s in sents)
+    assert any("Stick to your plan" in s for s in sents)
+    assert any("She previously explained" in s for s in sents)
+    # Must not glue the closing quote sentence onto the next narrator sentence only by smart quotes
+    assert not any(
+        "shared" in s and "She previously explained" in s for s in sents
+    ), joined
+
+
+def test_chinese_quotes_keep_dialogue_together() -> None:
+    from app.segments.segment import split_chinese_sentences
+
+    text = (
+        "“要坚持：把失败当成成功的垫脚石，千万别放弃。按计划走，”她说道，"
+        "“要助人：前行路上多帮衬他人。成功与人分享，才更有滋味。”"
+        "她之前也说过：“健身不非得有副好身材……目标是让自己舒服，不是为了好看。”"
+        "以前总有人嘲笑多诺霍年纪太大，不适合健身。"
+    )
+    sents = split_chinese_sentences(text)
+    # Dialogue should not explode into many orphan fragments starting with ”
+    assert not any(s.startswith("”") for s in sents), sents
+    assert any("她之前也说过" in s for s in sents)
+    assert any("以前总有人嘲笑" in s for s in sents)
+
+
+def test_en_zh_half_donohue_alignment() -> None:
+    """
+    Full English body then Chinese body (common bilingual extract).
+    Greedy length-zip used to skip correct short ZH and shift the rest.
+    """
+    md = """Evelyn Donohue is a 65-year-old grandma. She only started to exercise seven years ago after having a wake-up call. She’d been struggling with eating disorders and health issues, which ultimately led her to getting surgery. After that experience, she knew that she needed to make a change. Determined to turn her life around, Ms Donohue began to work out and follow a healthy lifestyle, before discovering a passion for weightlifting. Since setting out on the journey, the fitness lover has not only managed to grow an impressive set of muscles—but also a huge following on social media. The well-liked grandma regularly posts workout content, explaining there’s no reason others can’t look this good. She said it was all down to some key aspects. “Hold on: Consider failure as a stepping stone to success and never give up. Stick to your plan,” she said. “Help others: Lift others up on your journey. Success is sweeter when shared.” She previously explained that “you do not need to have an amazing body to exercise… the goal is to feel good, not look good.” Ms Donohue used to be laughed at for being too old to work out, but she has proved the doubters wrong in the best possible way and has indeed become an inspiration for many social media users.
+
+伊芙琳·多诺霍是位 65 岁的奶奶。她七年前才开始锻炼，此前经历了一次警醒。此前，她一直受饮食失调和健康问题的困扰，最后不得不接受手术。经历过这一切，她明白自己必须做出改变。多诺霍决心彻底改变生活，于是开始锻炼、践行健康的生活方式，后来还迷上了举重。自从踏上这条路，这位健身爱好者不仅练出了令人惊叹的肌肉，还在社交媒体上收获了大批粉丝。这位广受喜爱的奶奶经常发布健身内容，她觉得别人没理由练不出这样的状态。她坦言，能做到这些，关键在于几点。“要坚持：把失败当成成功的垫脚石，千万别放弃。按计划走，”她说道，“要助人：前行路上多帮衬他人。成功与人分享，才更有滋味。”她之前也说过：“健身不非得有副好身材……目标是让自己舒服，不是为了好看。”以前总有人嘲笑多诺霍年纪太大，不适合健身，但她用最有力的方式证明了质疑者的错误，也确实激励了众多社交媒体用户。
+"""
+    segs = align_markdown(md)
+
+    def tgt_for(*needles: str) -> str:
+        for s in segs:
+            if all(n in s["source"] for n in needles):
+                return s["target"] or ""
+        return ""
+
+    assert "伊芙琳" in tgt_for("Evelyn Donohue")
+    assert "七年前" in tgt_for("She only started to exercise")
+    assert "饮食失调" in tgt_for("struggling", "eating")
+    after = tgt_for("After that experience")
+    assert "经历过这一切" in after
+    assert "迷上了举重" not in after
+    hold = tgt_for("Hold on")
+    assert "坚持" in hold or "垫脚石" in hold
+    assert "嘲笑" in tgt_for("Ms Donohue used to be laughed")
+
+
+def test_missing_zh_leaves_gap_not_shift() -> None:
+    """One missing Chinese sentence must not shift all later pairs."""
+    md = (
+        "## Source\n\n"
+        "First English sentence is here for sure.\n\n"
+        "Second English sentence is also present.\n\n"
+        "Third English sentence ends the set.\n\n"
+        "## Translation\n\n"
+        "第一句中文译文在这里。\n\n"
+        # missing second Chinese on purpose
+        "第三句中文译文在这里。"
+    )
+    segs = align_markdown(md)
+    assert len(segs) == 3
+    assert "第一句" in segs[0]["target"]
+    # Second should be empty (gap) rather than stealing the third translation
+    assert segs[1]["target"] == "" or "第三句" not in segs[1]["target"]
+    assert "第三句" in segs[2]["target"]
+
+
 def test_freshman_shift_fixture_structure() -> None:
     """
     User-reported layout: inline section labels + alternating body.

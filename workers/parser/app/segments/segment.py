@@ -12,6 +12,12 @@ _EN_SENT_END = re.compile(r"([.!?]+)(?:\s+|$)")
 _ZH_SENT_END = re.compile(r"([。！？]+)(?:\s*|$)")
 _CJK = re.compile(r"[一-鿿]")
 
+# ASCII + common curly / CJK quotation marks.
+_OPEN_QUOTES = frozenset("\"'“‘「『‹«")
+_CLOSE_QUOTES = frozenset("\"'”’」』›»")
+_ALL_QUOTES = _OPEN_QUOTES | _CLOSE_QUOTES
+_TRAILING_CLOSERS = frozenset("\"')]}”’」』›»")
+
 _PAGE_NUM = re.compile(
     r"^(?:page\s*)?\d{1,4}$"
     r"|^[—\-–]\s*\d{1,4}\s*[—\-–]$"
@@ -169,6 +175,15 @@ def sanitize_markdown(markdown: str) -> str:
     return "\n\n".join(blocks)
 
 
+def _quote_delta(ch: str) -> int:
+    """+1 open, -1 close, 0 otherwise. Ambiguous ASCII quotes treated as toggle by caller."""
+    if ch in _OPEN_QUOTES and ch not in _CLOSE_QUOTES:
+        return 1
+    if ch in _CLOSE_QUOTES and ch not in _OPEN_QUOTES:
+        return -1
+    return 0
+
+
 def split_english_sentences(text: str) -> list[str]:
     text = text.strip()
     if not text:
@@ -182,27 +197,49 @@ def split_english_sentences(text: str) -> list[str]:
     sentences: list[str] = []
     buf: list[str] = []
     i = 0
+    quote_depth = 0
     while i < len(text):
         ch = text[i]
+        # Track curly / CJK quotes; ASCII " and ' toggle depth.
+        if ch in "\"'":
+            quote_depth = 0 if quote_depth > 0 else 1
+        else:
+            delta = _quote_delta(ch)
+            if delta:
+                quote_depth = max(0, quote_depth + delta)
+
         buf.append(ch)
         if ch in ".!?":
             candidate = "".join(buf).strip()
-            # look ahead whitespace + capital / end
             rest = text[i + 1 :]
-            if rest and not rest[0].isspace() and rest[0] not in "\"')]}":
+            # look ahead: non-space that is not a closer → not a boundary (e.g. 3.14)
+            if rest and not rest[0].isspace() and rest[0] not in _TRAILING_CLOSERS:
                 i += 1
                 continue
             # protect abbreviations
             if _ABBREV.search(candidate):
                 i += 1
                 continue
-            # consume trailing quotes
+            # consume trailing closers (ASCII + curly quotes, brackets)
             j = i + 1
-            while j < len(text) and text[j] in "\"')]}":
-                buf.append(text[j])
+            while j < len(text) and text[j] in _TRAILING_CLOSERS:
+                # keep quote depth consistent when absorbing closers
+                cj = text[j]
+                if cj in "\"'":
+                    quote_depth = 0
+                else:
+                    d = _quote_delta(cj)
+                    if d:
+                        quote_depth = max(0, quote_depth + d)
+                buf.append(cj)
                 j += 1
+            # Never break mid-dialogue: keep "A. B," she said as one unit.
+            if quote_depth > 0:
+                i = j if j > i + 1 else i + 1
+                continue
             sentences.append("".join(buf).strip())
             buf = []
+            quote_depth = 0
             i = j
             while i < len(text) and text[i].isspace():
                 i += 1
@@ -214,23 +251,109 @@ def split_english_sentences(text: str) -> list[str]:
     return [s for s in sentences if s]
 
 
+_ZH_ATTR = re.compile(
+    r"^[，,]{0,1}[^“\"\n]{0,12}?(?:说道|说|问道|问|答道|答|讲道|讲)[道]?[：:，,\s]*"
+)
+
+
 def split_chinese_sentences(text: str) -> list[str]:
+    """
+    Split on 。！？ but keep quoted dialogue intact.
+
+    Also split between consecutive quoted turns when a short attribution
+    sits between them: …计划走，”她说道，“要助人…
+    Avoid orphan fragments that start with a lone closing quote.
+    """
     text = text.strip()
     if not text:
         return []
-    if not re.search(r"[。！？]", text):
+    if not re.search(r"[。！？]", text) and "“" not in text and '"' not in text:
         return [text]
+
     parts: list[str] = []
     buf: list[str] = []
-    for ch in text:
+    quote_depth = 0
+    i = 0
+
+    def _emit() -> None:
+        nonlocal buf
+        piece = "".join(buf).strip()
+        if piece:
+            parts.append(piece)
+        buf = []
+
+    while i < len(text):
+        ch = text[i]
+        prev_depth = quote_depth
+        if ch in "\"'":
+            quote_depth = 0 if quote_depth > 0 else 1
+        else:
+            delta = _quote_delta(ch)
+            if delta:
+                quote_depth = max(0, quote_depth + delta)
+
         buf.append(ch)
+
+        # Just closed a quote → optional short attribution then next open quote
+        if prev_depth > 0 and quote_depth == 0:
+            rest = text[i + 1 :]
+            m = _ZH_ATTR.match(rest)
+            if m:
+                after_attr = rest[m.end() :]
+                # next non-space is a new opening quote → end this turn
+                k = 0
+                while k < len(after_attr) and after_attr[k].isspace():
+                    k += 1
+                if k < len(after_attr) and after_attr[k] in _OPEN_QUOTES | frozenset(
+                    "\"'"
+                ):
+                    # absorb attribution into current sentence, then emit
+                    attr = m.group(0)
+                    buf.extend(list(attr))
+                    _emit()
+                    i = i + 1 + len(attr)
+                    continue
+
         if ch in "。！？":
-            parts.append("".join(buf).strip())
-            buf = []
+            # Absorb trailing closing quotes belonging to this sentence.
+            j = i + 1
+            while j < len(text) and text[j] in _CLOSE_QUOTES | frozenset("\"'"):
+                cj = text[j]
+                if cj in "\"'":
+                    quote_depth = 0
+                else:
+                    d = _quote_delta(cj)
+                    if d:
+                        quote_depth = max(0, quote_depth + d)
+                buf.append(cj)
+                j += 1
+
+            # If still inside an open quote, do not split yet.
+            if quote_depth > 0:
+                i = j
+                continue
+
+            _emit()
+            i = j
+            continue
+        i += 1
+
     tail = "".join(buf).strip()
     if tail:
-        parts.append(tail)
-    return [p for p in parts if p]
+        if parts and tail[0] in _CLOSE_QUOTES | frozenset("\"'"):
+            parts[-1] = parts[-1] + tail
+        else:
+            parts.append(tail)
+
+    merged: list[str] = []
+    for p in parts:
+        if not p:
+            continue
+        if merged and p[0] in _CLOSE_QUOTES | frozenset("\"'"):
+            merged[-1] = merged[-1] + p
+        else:
+            merged.append(p)
+    return merged
 
 
 def sentences_for_block(block: str) -> list[str]:
