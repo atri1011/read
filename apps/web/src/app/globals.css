@@ -157,6 +157,7 @@ body {
   border-radius: 0.15em;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+  cursor: pointer;
 }
 
 .ann-type-highlight.ann-color-yellow,
@@ -238,6 +239,32 @@ body {
 }
 .dark .ann-mark.ann-active {
   outline-color: rgb(212 212 216);
+}
+
+/* ── Reader progress bar ── */
+
+.reader-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: 2px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--reader-muted, #6b5e4e) 18%, transparent);
+}
+
+.reader-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: color-mix(in srgb, var(--reader-fg, #2c2416) 72%, var(--reader-muted, #6b5e4e));
+  transition: width 120ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-progress-bar {
+    transition: none;
+  }
 }
 
 /* ── Immersive reader (novel-like focus mode) ── */
@@ -477,3 +504,27 @@ html.immersive-reading .reader-page-root {
 }
 
 
+
+
+/* ── In-article find highlights ── */
+
+.reader-find-mark {
+  border-radius: 0.15em;
+  background-color: rgb(250 204 21 / 0.45);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.reader-find-mark-active {
+  background-color: rgb(249 115 22 / 0.55);
+  outline: 1px solid rgb(234 88 12 / 0.7);
+}
+
+.dark .reader-find-mark {
+  background-color: rgb(202 138 4 / 0.45);
+}
+
+.dark .reader-find-mark-active {
+  background-color: rgb(234 88 12 / 0.5);
+  outline-color: rgb(251 146 60 / 0.8);
+}

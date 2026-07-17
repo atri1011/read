@@ -60,11 +60,29 @@ export function DictPopup({ rootRef, openRequest, onAddNote }: Props) {
     setLoading(false);
   }, []);
 
+  const clampPos = useCallback((position: Pos, panel?: HTMLElement | null): Pos => {
+    const width = panel?.offsetWidth ?? 320;
+    const height = panel?.offsetHeight ?? 220;
+    const pad = 12;
+    const maxLeft = Math.max(pad + width / 2, window.innerWidth - pad - width / 2);
+    const minLeft = pad + width / 2;
+    let left = Math.min(maxLeft, Math.max(minLeft, position.left));
+    let top = position.top;
+    // Prefer below selection; if overflows bottom, flip above when possible.
+    if (top + height + pad > window.innerHeight) {
+      const above = top - height - 16;
+      if (above >= pad) top = above;
+      else top = Math.max(pad, window.innerHeight - height - pad);
+    }
+    if (top < pad) top = pad;
+    return { top, left };
+  }, []);
+
   const lookup = useCallback(
     async (word: string, nextAnchor: TextAnchor | null, position: Pos) => {
       const q = word.trim();
       if (!q) return;
-      setPos(position);
+      setPos(clampPos(position));
       setVisible(true);
       setLoading(true);
       setError(null);
@@ -89,8 +107,17 @@ export function DictPopup({ rootRef, openRequest, onAddNote }: Props) {
         setLoading(false);
       }
     },
-    [],
+    [clampPos],
   );
+
+  // After content settles, re-clamp so tall definitions stay on screen.
+  useEffect(() => {
+    if (!visible) return;
+    const id = window.requestAnimationFrame(() => {
+      setPos((prev) => clampPos(prev, panelRef.current));
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [visible, loading, result, error, clampPos]);
 
   // External open (toolbar 词典 button)
   useEffect(() => {
@@ -99,8 +126,8 @@ export function DictPopup({ rootRef, openRequest, onAddNote }: Props) {
     const word = openRequest.word.trim();
     if (!word) return;
     void lookup(word, openRequest.anchor ?? null, {
-      top: Math.max(16, window.innerHeight * 0.2),
-      left: Math.min(window.innerWidth - 200, Math.max(160, window.innerWidth / 2)),
+      top: Math.max(24, Math.min(window.innerHeight * 0.28, window.innerHeight - 240)),
+      left: window.innerWidth / 2,
     });
   }, [openRequest, lookup]);
 

@@ -29,6 +29,18 @@ import {
 } from "@/lib/annotations/client";
 import type { TextAnchor } from "@/lib/annotations/anchor";
 import { extractTocFromHtml, type TocItem } from "@/lib/md/render";
+import {
+  computeScrollRatio,
+  loadReaderProgress,
+  ratioToScrollTop,
+  saveReaderProgress,
+} from "@/lib/reader/progress";
+import {
+  applyFindMarks,
+  clearFindMarks,
+  normalizeFindQuery,
+  scrollToFindMatch,
+} from "@/lib/reader/find-in-page";
 
 type Props = {
   documentId: string;
@@ -265,6 +277,14 @@ export function ReaderShell({
   const [hotZoneOpen, setHotZoneOpen] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [progressRatio, setProgressRatio] = useState(0);
+  const restoredProgressRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findCount, setFindCount] = useState(0);
+  const [findIndex, setFindIndex] = useState(0);
+  const findInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setPrefs(loadPrefs());
@@ -278,6 +298,117 @@ export function ReaderShell({
     };
   }, []);
 
+  // Restore last reading position for this document (ratio-based).
+  useEffect(() => {
+    restoredProgressRef.current = false;
+    setProgressRatio(0);
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryRestore = () => {
+      if (cancelled || restoredProgressRef.current) return;
+      const saved = loadReaderProgress(documentId);
+      if (!saved || saved.ratio <= 0.01) {
+        restoredProgressRef.current = true;
+        setProgressRatio(saved?.ratio ?? 0);
+        return;
+      }
+
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      // Wait until content has real height (fonts / images / bilingual layout).
+      if (max <= 40 && attempts < 24) {
+        attempts += 1;
+        window.setTimeout(tryRestore, 50);
+        return;
+      }
+
+      scroller.scrollTop = ratioToScrollTop(
+        saved.ratio,
+        scroller.scrollHeight,
+        scroller.clientHeight,
+      );
+      setProgressRatio(saved.ratio);
+      restoredProgressRef.current = true;
+    };
+
+    // Next frame so ArticlePane has painted bodyHtml.
+    const id = window.requestAnimationFrame(() => tryRestore());
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(id);
+    };
+  }, [documentId, bodyHtml]);
+
+  // Track scroll progress + persist (throttled).
+  // Wait until restore finishes so we never overwrite saved progress with 0.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    let cancelled = false;
+    let attached = false;
+
+    const persist = (ratio: number, immediate = false) => {
+      setProgressRatio(ratio);
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (immediate) {
+        saveReaderProgress(documentId, ratio);
+        return;
+      }
+      saveTimerRef.current = window.setTimeout(() => {
+        saveReaderProgress(documentId, ratio);
+        saveTimerRef.current = null;
+      }, 180);
+    };
+
+    const onScroll = () => {
+      if (!restoredProgressRef.current) return;
+      const ratio = computeScrollRatio(
+        scroller.scrollTop,
+        scroller.scrollHeight,
+        scroller.clientHeight,
+      );
+      persist(ratio);
+    };
+
+    const attachWhenReady = () => {
+      if (cancelled || attached) return;
+      if (!restoredProgressRef.current) {
+        window.setTimeout(attachWhenReady, 40);
+        return;
+      }
+      attached = true;
+      scroller.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    };
+
+    attachWhenReady();
+
+    return () => {
+      cancelled = true;
+      scroller.removeEventListener("scroll", onScroll);
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      // Flush only if restore already applied; otherwise leave prior value.
+      if (restoredProgressRef.current) {
+        const ratio = computeScrollRatio(
+          scroller.scrollTop,
+          scroller.scrollHeight,
+          scroller.clientHeight,
+        );
+        persist(ratio, true);
+      }
+    };
+  }, [documentId, bodyHtml]);
+
   const updatePrefs = useCallback((patch: Partial<ReaderPrefs>) => {
     setPrefs((prev) => {
       const next = { ...prev, ...patch };
@@ -290,27 +421,7 @@ export function ReaderShell({
     });
   }, []);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (notesOpen) {
-        e.preventDefault();
-        setNotesOpen(false);
-        return;
-      }
-      if (tocOpen) {
-        e.preventDefault();
-        setTocOpen(false);
-        return;
-      }
-      if (hotZoneOpen) {
-        e.preventDefault();
-        setHotZoneOpen(false);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [notesOpen, tocOpen, hotZoneOpen]);
+
 
   const reload = useCallback(
     async (withPublic: boolean) => {
@@ -344,10 +455,20 @@ export function ReaderShell({
     setActiveId(created.id);
   }
 
-  function handleSelect(id: string) {
+  function handleSelect(id: string, opts?: { openNotes?: boolean }) {
     setActiveId(id);
+    if (opts?.openNotes) setNotesOpen(true);
     const root = articleRef.current;
-    if (root) scrollToAnnotation(root, id);
+    if (root) {
+      // Marks may re-render with active styles; defer scroll slightly.
+      window.requestAnimationFrame(() => {
+        scrollToAnnotation(root, id);
+      });
+    }
+  }
+
+  function handleSelectFromMark(id: string) {
+    handleSelect(id, { openNotes: true });
   }
 
   function handleDeleted(id: string) {
@@ -390,8 +511,252 @@ export function ReaderShell({
     [bodyHtml],
   );
 
+
+  // In-article find: re-apply after annotations redraw.
+  useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const q = normalizeFindQuery(findQuery);
+    if (!findOpen || !q) {
+      clearFindMarks(root);
+      setFindCount(0);
+      return;
+    }
+    const count = applyFindMarks(root, q, findIndex);
+    setFindCount(count);
+    if (count === 0) return;
+    const safeIndex = ((findIndex % count) + count) % count;
+    if (safeIndex !== findIndex) {
+      setFindIndex(safeIndex);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      scrollToFindMatch(root, safeIndex);
+    });
+  }, [findOpen, findQuery, findIndex, annotations, bodyHtml, activeId]);
+
+  function closeFind() {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindCount(0);
+    setFindIndex(0);
+    const root = articleRef.current;
+    if (root) clearFindMarks(root);
+  }
+
+  function openFind() {
+    setFindOpen(true);
+    setHotZoneOpen(true);
+    window.setTimeout(() => findInputRef.current?.focus(), 0);
+  }
+
+  function stepFind(delta: number) {
+    if (findCount <= 0) return;
+    setFindIndex((idx) => {
+      const next = (idx + delta) % findCount;
+      return next < 0 ? next + findCount : next;
+    });
+  }
+
+
+  useEffect(() => {
+    function isTypingTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      return target.isContentEditable;
+    }
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (findOpen) {
+          e.preventDefault();
+          closeFind();
+          return;
+        }
+        if (notesOpen) {
+          e.preventDefault();
+          setNotesOpen(false);
+          return;
+        }
+        if (tocOpen) {
+          e.preventDefault();
+          setTocOpen(false);
+          return;
+        }
+        if (hotZoneOpen) {
+          e.preventDefault();
+          setHotZoneOpen(false);
+        }
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        openFind();
+        return;
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        setNotesOpen((v) => !v);
+        return;
+      }
+      if (e.key === "t" || e.key === "T") {
+        if (tocItems.length === 0) return;
+        e.preventDefault();
+        setHotZoneOpen(true);
+        setTocOpen((v) => !v);
+        return;
+      }
+      if (e.key === "[" || e.key === "]") {
+        e.preventDefault();
+        setPrefs((prev) => {
+          const idx = FONT_STEPS.indexOf(
+            prev.fontSize as (typeof FONT_STEPS)[number],
+          );
+          const nextIdx =
+            e.key === "["
+              ? Math.max(0, idx === -1 ? 0 : idx - 1)
+              : Math.min(
+                  FONT_STEPS.length - 1,
+                  idx === -1 ? FONT_STEPS.length - 1 : idx + 1,
+                );
+          const next = {
+            ...prev,
+            fontSize: FONT_STEPS[nextIdx] ?? prev.fontSize,
+          };
+          try {
+            localStorage.setItem("reader:prefs", JSON.stringify(next));
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+        setHotZoneOpen(true);
+        return;
+      }
+      if ((e.key === "b" || e.key === "B") && hasBilingual) {
+        e.preventDefault();
+        setPrefs((prev) => {
+          const next = {
+            ...prev,
+            bilingualMode:
+              prev.bilingualMode === "bilingual"
+                ? ("source" as const)
+                : ("bilingual" as const),
+          };
+          try {
+            localStorage.setItem("reader:prefs", JSON.stringify(next));
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+        setHotZoneOpen(true);
+        return;
+      }
+
+      const scroller = scrollRef.current;
+      if (!scroller) return;
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        const delta = Math.max(240, scroller.clientHeight * 0.9);
+        scroller.scrollBy({
+          top: e.shiftKey ? -delta : delta,
+          behavior: "smooth",
+        });
+        return;
+      }
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        scroller.scrollBy({ top: 80, behavior: "smooth" });
+        return;
+      }
+      if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        scroller.scrollBy({ top: -80, behavior: "smooth" });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [notesOpen, tocOpen, hotZoneOpen, tocItems.length, hasBilingual, findOpen, findCount]);
+
   return (
     <div className="reader-page-root reader-immersive flex min-h-0 flex-1 flex-col">
+      <div
+        className="reader-progress"
+        role="progressbar"
+        aria-label="阅读进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progressRatio * 100)}
+      >
+        <div
+          className="reader-progress-bar"
+          style={{ width: `${Math.round(progressRatio * 1000) / 10}%` }}
+        />
+      </div>
+      {findOpen && (
+        <div className="fixed left-1/2 top-3 z-50 flex w-[min(32rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-2 rounded-full border border-[color:color-mix(in_srgb,var(--reader-muted)_28%,transparent)] bg-[color:var(--reader-surface)]/95 px-3 py-1.5 shadow-lg backdrop-blur">
+          <input
+            ref={findInputRef}
+            value={findQuery}
+            onChange={(e) => {
+              setFindQuery(e.target.value);
+              setFindIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                stepFind(e.shiftKey ? -1 : 1);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder="在文中查找…"
+            className="min-w-0 flex-1 bg-transparent text-sm text-[color:var(--reader-fg)] outline-none placeholder:text-[color:var(--reader-muted)]"
+            aria-label="在文中查找"
+          />
+          <span className="shrink-0 tabular-nums text-xs text-[color:var(--reader-muted)]">
+            {normalizeFindQuery(findQuery)
+              ? findCount > 0
+                ? `${findIndex + 1}/${findCount}`
+                : "0/0"
+              : "—"}
+          </span>
+          <button
+            type="button"
+            className="rounded-md px-1.5 py-0.5 text-xs text-[color:var(--reader-muted)] hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => stepFind(-1)}
+            disabled={findCount <= 0}
+            aria-label="上一个匹配"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-1.5 py-0.5 text-xs text-[color:var(--reader-muted)] hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => stepFind(1)}
+            disabled={findCount <= 0}
+            aria-label="下一个匹配"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-1.5 py-0.5 text-xs text-[color:var(--reader-muted)] hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={closeFind}
+            aria-label="关闭查找"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <Link
         href="/app/shelf"
         aria-label="返回书架"
@@ -416,6 +781,9 @@ export function ReaderShell({
         />
         {hotZoneOpen && (
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 rounded-b-xl border border-zinc-200/80 border-t-0 bg-[color:var(--reader-surface)]/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-zinc-700/80">
+            <span className="tabular-nums text-zinc-500">
+              {Math.round(progressRatio * 100)}%
+            </span>
             <FontMeasureControls prefs={prefs} updatePrefs={updatePrefs} />
             <BilingualModeControls
               prefs={prefs}
@@ -427,6 +795,14 @@ export function ReaderShell({
               open={tocOpen}
               onOpenChange={setTocOpen}
             />
+            <button
+              type="button"
+              onClick={openFind}
+              className="rounded border border-zinc-300/80 px-2 py-0.5 text-xs text-zinc-700 hover:bg-black/5 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-white/10"
+              title="在文中查找 (Ctrl/Cmd+F)"
+            >
+              查找
+            </button>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <ThemeToggle className="border-zinc-300/80 px-2 py-0.5 text-xs dark:border-zinc-600" />
               {ownerActions}
@@ -458,6 +834,7 @@ export function ReaderShell({
               annotations={annotations}
               currentUserId={currentUserId}
               activeId={activeId}
+              onSelect={handleSelectFromMark}
             />
             <SelectionToolbar
               rootRef={articleRef}
@@ -481,6 +858,11 @@ export function ReaderShell({
           onIncludePublicChange={setIncludePublic}
           onSelect={handleSelect}
           onDeleted={handleDeleted}
+          onUpdated={(row) => {
+            setAnnotations((prev) =>
+              prev.map((a) => (a.id === row.id ? row : a)),
+            );
+          }}
           activeId={activeId}
           loading={loading}
           open={notesOpen}

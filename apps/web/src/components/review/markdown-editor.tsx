@@ -97,6 +97,17 @@ export function MarkdownEditor({
     return Math.min(100, Math.round((page / total) * 100));
   }, [progress]);
 
+  // Warn when leaving with unsaved edits (tab close / refresh).
+  useEffect(() => {
+    if (!dirty || !canEdit) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, canEdit]);
+
   useEffect(() => {
     let cancelled = false;
     if (useSegments && segments.length > 0) {
@@ -246,6 +257,20 @@ export function MarkdownEditor({
     });
   }
 
+  // Ctrl/Cmd+S saves draft while editable.
+  useEffect(() => {
+    if (!canEdit) return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key !== "s" && e.key !== "S") return;
+      e.preventDefault();
+      if (!dirty || pending) return;
+      void save();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canEdit, dirty, pending, title, markdown, segments, useSegments, documentId, router]);
+
   async function publish() {
     setError(null);
     setMessage(null);
@@ -390,10 +415,11 @@ export function MarkdownEditor({
           <button
             type="button"
             onClick={() => void save()}
-            disabled={!canEdit || pending}
+            disabled={!canEdit || pending || !dirty}
             className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            title="Ctrl/Cmd+S"
           >
-            保存
+            {pending ? "保存中…" : dirty ? "保存*" : "已保存"}
           </button>
           <button
             type="button"

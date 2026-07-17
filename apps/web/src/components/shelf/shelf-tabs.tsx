@@ -6,6 +6,7 @@ import {
   type ShelfDocument,
 } from "@/components/shelf/document-list";
 import { UploadDropzone } from "@/components/shelf/upload-dropzone";
+import { ContinueReading } from "@/components/shelf/continue-reading";
 import { isActiveParseStatus } from "@/lib/documents/job-progress";
 
 type Scope = "mine" | "public";
@@ -143,6 +144,10 @@ export function ShelfTabs() {
 
       {scope === "mine" && (
         <UploadDropzone onUploaded={() => void load("mine")} />
+      )}
+
+      {scope === "mine" && !loading && documents.length > 0 && (
+        <ContinueReading documents={documents} />
       )}
 
       {error && (

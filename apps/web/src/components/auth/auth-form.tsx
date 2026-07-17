@@ -18,6 +18,19 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  function safeNextPath(): string {
+    if (typeof window === "undefined") return "/app/shelf";
+    try {
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next && next.startsWith("/app") && !next.startsWith("//")) {
+        return next;
+      }
+    } catch {
+      /* ignore */
+    }
+    return "/app/shelf";
+  }
+
   const isRegister = mode === "register";
   const title = isRegister ? "注册" : "登录";
   const submitLabel = isRegister ? "创建账号" : "登录";
@@ -54,7 +67,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         return;
       }
 
-      router.push("/app/shelf");
+      router.push(safeNextPath());
       router.refresh();
     } catch {
       setError("网络错误，请稍后重试");

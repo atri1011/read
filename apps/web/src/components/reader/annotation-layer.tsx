@@ -9,6 +9,7 @@ type Props = {
   annotations: AnnotationDto[];
   currentUserId: string;
   activeId?: string | null;
+  onSelect?: (id: string) => void;
 };
 
 const MARK_ATTR = "data-annotation-id";
@@ -156,6 +157,7 @@ export function AnnotationLayer({
   annotations,
   currentUserId,
   activeId,
+  onSelect,
 }: Props) {
   useEffect(() => {
     const root = rootRef.current;
@@ -190,6 +192,31 @@ export function AnnotationLayer({
       if (root) clearMarks(root);
     };
   }, [rootRef]);
+
+  // Click an in-article mark to open/focus that annotation.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !onSelect) return;
+
+    function onClick(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      const mark = target?.closest?.(
+        `span.${MARK_CLASS}[${MARK_ATTR}]`,
+      ) as HTMLElement | null;
+      if (!mark || !root?.contains(mark)) return;
+      // Ignore when user is selecting text.
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && (sel.toString()?.length ?? 0) > 0) return;
+      const id = mark.getAttribute(MARK_ATTR);
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onSelect?.(id);
+    }
+
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, [rootRef, onSelect]);
 
   return null;
 }

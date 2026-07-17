@@ -8,6 +8,7 @@ import {
 } from "@/lib/documents/job-progress";
 import { titleAccentStyle } from "@/lib/shelf/title-accent";
 import type { ShelfDocument } from "@/components/shelf/document-list";
+import { ReadingProgressBadge } from "@/components/shelf/reading-progress-badge";
 
 type DocumentCardProps = {
   doc: ShelfDocument;
@@ -104,6 +105,10 @@ export function DocumentCard({
               公开
             </span>
           )}
+          <ReadingProgressBadge
+            documentId={doc.id}
+            enabled={doc.status === "published"}
+          />
         </div>
 
         {allowDelete && onDelete && (

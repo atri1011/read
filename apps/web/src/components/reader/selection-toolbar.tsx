@@ -124,11 +124,18 @@ export function SelectionToolbar({
       setNoteBody("");
       setError(null);
 
-      // fixed positioning uses viewport coordinates
+      // fixed positioning uses viewport coordinates; keep bar on-screen
       const rect = range.getBoundingClientRect();
-      const top = rect.top - 48;
-      const left = rect.left + rect.width / 2;
-      setPos({ top: Math.max(8, top), left: Math.max(80, left) });
+      const approxWidth = 360;
+      const approxHeight = 52;
+      let top = rect.top - approxHeight - 8;
+      if (top < 8) top = Math.min(window.innerHeight - approxHeight - 8, rect.bottom + 8);
+      let left = rect.left + rect.width / 2;
+      left = Math.min(
+        window.innerWidth - approxWidth / 2 - 8,
+        Math.max(approxWidth / 2 + 8, left),
+      );
+      setPos({ top: Math.max(8, top), left });
       setVisible(true);
     }
 
@@ -154,10 +161,14 @@ export function SelectionToolbar({
         setVisible(false);
         return;
       }
-      setPos({
-        top: Math.max(8, rect.top - 48),
-        left: Math.max(80, rect.left + rect.width / 2),
-      });
+      const approxWidth = 360;
+      let top = Math.max(8, rect.top - 48);
+      let left = rect.left + rect.width / 2;
+      left = Math.min(
+        window.innerWidth - approxWidth / 2 - 8,
+        Math.max(approxWidth / 2 + 8, left),
+      );
+      setPos({ top, left });
     }
 
     document.addEventListener("mouseup", onMouseUp);

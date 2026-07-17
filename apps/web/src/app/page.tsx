@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/current-user";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await getCurrentUser();
+  if (user) redirect("/app/shelf");
+
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-24">
       <div className="mx-auto max-w-xl space-y-6 text-center">
@@ -23,12 +28,6 @@ export default function HomePage() {
             className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
           >
             注册
-          </Link>
-          <Link
-            href="/app/shelf"
-            className="rounded-lg px-5 py-2.5 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-300"
-          >
-            进入书架
           </Link>
         </div>
       </div>
